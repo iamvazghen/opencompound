@@ -78,6 +78,19 @@ export const vaultAbi = [
   },
   {
     "type": "function",
+    "name": "breakEvenLtvBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "convertToAssets",
     "inputs": [
       {
@@ -154,6 +167,13 @@ export const vaultAbi = [
   },
   {
     "type": "function",
+    "name": "deleverageFlash",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "deposit",
     "inputs": [
       {
@@ -211,6 +231,19 @@ export const vaultAbi = [
   },
   {
     "type": "function",
+    "name": "isSelfRepaying",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "leverage",
     "inputs": [],
     "outputs": [
@@ -220,6 +253,13 @@ export const vaultAbi = [
         "internalType": "uint256"
       }
     ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "leverageFlash",
+    "inputs": [],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -280,6 +320,25 @@ export const vaultAbi = [
   },
   {
     "type": "function",
+    "name": "netCarryRayAt",
+    "inputs": [
+      {
+        "name": "ltvBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "int256",
+        "internalType": "int256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "owner",
     "inputs": [],
     "outputs": [
@@ -320,6 +379,19 @@ export const vaultAbi = [
         "name": "",
         "type": "address",
         "internalType": "contract IPool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "recommendedLtvBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"

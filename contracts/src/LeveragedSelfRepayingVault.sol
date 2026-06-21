@@ -10,7 +10,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-import {IPool, ReserveDataLegacy} from "./interfaces/IAaveV3.sol";
+import {IPool, IFlashLoanSimpleReceiver, ReserveDataLegacy} from "./interfaces/IAaveV3.sol";
 import {CarryMath} from "./libraries/CarryMath.sol";
 
 /// @title  LeveragedSelfRepayingVault
@@ -23,7 +23,7 @@ import {CarryMath} from "./libraries/CarryMath.sol";
 ///           "self-repaying" source here is harvested incentive rewards, NOT yield.
 ///           A yield-differential variant (supply wstETH / borrow WETH) is the v2 path.
 ///         NOT AUDITED. Testnet only. See README security section.
-contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGuard {
+contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGuard, IFlashLoanSimpleReceiver {
     using SafeERC20 for IERC20;
 
     uint256 internal constant VARIABLE_RATE = 2; // Aave V3 variable interest rate mode
@@ -133,13 +133,62 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
         if (repayAmount > debt) repayAmount = debt;
         if (repayAmount == 0) return;
 
-        // Pull the underlying to repay with from the collateral side. Aave's HF check
-        // gates how much we can withdraw at once; callers may need several passes for
-        // deeply leveraged positions. ponytail: iterative caller-driven unwind, no
-        // flash-loan one-shot yet (add when single-pass UX matters).
+        // Pull the underlying to repay with from the collateral side. Aave's HF check gates
+        // how much we can withdraw at once. For a one-shot unwind use deleverageFlash().
         pool.withdraw(asset(), repayAmount, address(this));
         uint256 repaid = pool.repay(asset(), repayAmount, VARIABLE_RATE, address(this));
         emit Deleveraged(repaid, repayAmount);
+    }
+
+    // ───────────────────────────── Flash-loan one-shot (fast paths) ─────────────────────────────
+    //
+    // Same-asset means collateral and debt are the SAME token, so these need NO swap — the flash
+    // borrow is repaid 1:1 from the (re)borrow / withdrawal. leverageFlash reaches the EXACT target
+    // LTV in one tx (vs the loop's cycle-limited ~64%); deleverageFlash fully unwinds in one tx
+    // (vs deleverage()'s several health-factor-gated passes).
+
+    uint8 private constant FLASH_LEVER = 0;
+    uint8 private constant FLASH_UNWIND = 1;
+
+    /// @notice Leverage to the exact target LTV in a single transaction. Unlevered start only.
+    function leverageFlash() external whenNotPaused nonReentrant onlyOwner {
+        require(variableDebtToken.balanceOf(address(this)) == 0, "flash entry requires no debt");
+        uint256 equity = aToken.balanceOf(address(this)); // no debt → collateral == equity
+        // To reach LTV L: flash D = L·E/(1−L) of the asset, supply it, borrow D(+premium), repay flash.
+        uint256 flashAmt = (equity * targetLtvBps) / (BPS - targetLtvBps);
+        if (flashAmt < 1e6) return;
+        pool.flashLoanSimple(address(this), asset(), flashAmt, abi.encode(FLASH_LEVER), 0);
+        emit Leveraged(1, flashAmt, flashAmt);
+    }
+
+    /// @notice Fully unwind (repay all debt, no residual) in a single transaction.
+    function deleverageFlash() external whenNotPaused nonReentrant onlyOwner {
+        uint256 debt = variableDebtToken.balanceOf(address(this));
+        if (debt == 0) return;
+        pool.flashLoanSimple(address(this), asset(), debt, abi.encode(FLASH_UNWIND), 0);
+        emit Deleveraged(debt, debt);
+    }
+
+    /// @inheritdoc IFlashLoanSimpleReceiver
+    /// @dev Aave calls this mid-flash. Gated to pool + self; runs inside the caller's lock.
+    function executeOperation(address asset_, uint256 amount, uint256 premium, address initiator, bytes calldata params)
+        external
+        returns (bool)
+    {
+        require(msg.sender == address(pool), "caller not pool");
+        require(initiator == address(this), "initiator not self");
+        uint256 owed = amount + premium;
+
+        if (abi.decode(params, (uint8)) == FLASH_LEVER) {
+            // supply the flashed collateral, borrow what we owe back (same asset, no swap)
+            pool.supply(asset_, amount, address(this), 0);
+            pool.borrow(asset_, owed, VARIABLE_RATE, 0, address(this));
+        } else {
+            // repay all debt, then withdraw the owed amount of now-freed collateral
+            pool.repay(asset_, amount, VARIABLE_RATE, address(this));
+            pool.withdraw(asset_, owed, address(this));
+        }
+        return true; // collateral already max-approved to the pool, which pulls `owed`
     }
 
     // ───────────────────────────── Self-repaying mode ─────────────────────────────

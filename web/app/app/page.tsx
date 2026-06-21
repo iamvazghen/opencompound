@@ -335,14 +335,22 @@ function StrategyPanel({
         <div className="mt-6 flex flex-wrap gap-2.5">
           <Btn onClick={doDeposit} disabled={isPending} primary>Deposit</Btn>
           <Btn onClick={applyPreset} disabled={isPending}>Apply {preset.label}</Btn>
-          <Btn onClick={() => w("leverage")} disabled={isPending}>Leverage</Btn>
-          {version === "v2" && <Btn onClick={() => w("leverageFlash")} disabled={isPending}>Flash leverage</Btn>}
+          <Btn onClick={() => w("leverageFlash")} disabled={isPending} primary>Flash leverage</Btn>
+          <Btn onClick={() => w("leverage")} disabled={isPending}>Leverage (loop)</Btn>
           {version === "v1" && <Btn onClick={() => w("harvestAndRepay")} disabled={isPending}>Harvest</Btn>}
           {version === "v2" && <Btn onClick={() => w("rebalance", [0n])} disabled={isPending}>Rebalance</Btn>}
-          <Btn onClick={() => w("deleverage", [2n ** 256n - 1n])} disabled={isPending}>Deleverage</Btn>
+          {version === "v1" ? (
+            <Btn onClick={() => w("deleverageFlash")} disabled={isPending}>Flash unwind</Btn>
+          ) : (
+            <Btn onClick={() => w("deleverage", [2n ** 256n - 1n])} disabled={isPending}>Deleverage</Btn>
+          )}
           <Btn onClick={() => w("emergencyUnwind")} disabled={isPending} danger>Emergency unwind</Btn>
         </div>
       )}
+      <p className="mt-3 text-xs text-[var(--color-ink-3)]">
+        Flash leverage hits the exact target LTV in one tx (~327k gas); Flash unwind clears all debt in
+        one tx. The loop / iterative buttons are the no-flash fallbacks.
+      </p>
     </section>
   );
 }

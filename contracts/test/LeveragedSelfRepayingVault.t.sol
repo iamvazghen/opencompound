@@ -6,7 +6,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {LeveragedSelfRepayingVault} from "../src/LeveragedSelfRepayingVault.sol";
-import {IPool, IPoolAddressesProvider, ReserveDataLegacy} from "../src/interfaces/IAaveV3.sol";
+import {IPool, IPoolAddressesProvider, IFlashLoanSimpleReceiver, ReserveDataLegacy} from "../src/interfaces/IAaveV3.sol";
 
 /// @dev Mintable test token used for the underlying, aToken and debtToken.
 contract MockToken is ERC20 {
@@ -82,8 +82,14 @@ contract MockPool is IPool {
         return IPoolAddressesProvider(address(0)); // unused by the single-asset vault
     }
 
-    function flashLoanSimple(address, address, uint256, bytes calldata, uint16) external pure {
-        revert("not supported in single-asset mock");
+    function flashLoanSimple(address receiver, address asset, uint256 amount, bytes calldata params, uint16) external {
+        uint256 premium = (amount * 9) / 10_000;
+        MockToken(asset).mint(receiver, amount);
+        require(
+            IFlashLoanSimpleReceiver(receiver).executeOperation(asset, amount, premium, receiver, params),
+            "callback failed"
+        );
+        MockToken(asset).transferFrom(receiver, address(this), amount + premium);
     }
 }
 
@@ -174,6 +180,26 @@ contract LeveragedSelfRepayingVaultTest is Test {
         vault.leverage();
         assertLt(vault.currentLtvBps(), vault.breakEvenLtvBps());
         assertTrue(vault.isSelfRepaying(), "40% LTV < 57% break-even self-repays");
+    }
+
+    /// Flash leverage reaches the EXACT 70% target in one tx (vs the loop's ~64%).
+    function test_LeverageFlashReachesExactTarget() public {
+        _deposit(1 ether);
+        vault.leverageFlash();
+        assertApproxEqAbs(vault.currentLtvBps(), 7000, 60, "hits target LTV");
+        assertGt(vault.currentLtvBps(), 6900, "tighter than the cycle-limited loop");
+        // Equity preserved minus the ~0.09% flash premium on the flashed amount.
+        assertApproxEqAbs(vault.totalAssets(), 1 ether, 3e15);
+    }
+
+    /// Flash unwind clears ALL debt in a single tx (no multi-pass health-factor gating).
+    function test_DeleverageFlashFullyUnwindsInOneTx() public {
+        _deposit(1 ether);
+        vault.leverage();
+        assertGt(poolMock.debtToken().balanceOf(address(vault)), 0, "has debt");
+        vault.deleverageFlash();
+        assertEq(poolMock.debtToken().balanceOf(address(vault)), 0, "debt fully cleared");
+        assertEq(vault.currentLtvBps(), 0, "fully unlevered");
     }
 
     function test_SetStrategyRejectsAboveCeilings() public {
