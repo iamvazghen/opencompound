@@ -7,7 +7,7 @@ import { Nav } from "@/components/Nav";
 import { vaultAbi } from "@/lib/vaultAbi";
 import { yieldVaultAbi } from "@/lib/yieldVaultAbi";
 import { aavePoolAbi } from "@/lib/aaveAbi";
-import { aavePool, vaultAddress, ZERO, type VaultVersion } from "@/lib/config";
+import { aavePool, vaultAddress, ZERO, explorerBase, aaveMarketUrl, type VaultVersion } from "@/lib/config";
 import { simulate, RISK_PRESETS, netCarryPctAtLtv, type RiskPreset } from "@/lib/sim";
 import { fmtUsd, fmtHealth, rayToPct, fmtPct } from "@/lib/format";
 
@@ -140,6 +140,44 @@ export default function Dashboard() {
           supplyPct={signal.supplyPct}
           borrowPct={signal.borrowPct}
         />
+
+        {vaultLive && (
+          <section className="surface mt-6 rounded-2xl p-6">
+            <h2 className="mb-3 text-lg">Verify on-chain</h2>
+            <p className="text-sm text-[var(--color-ink-2)]">
+              The vault holds the Aave position <strong>under its own address</strong> (not your wallet),
+              so check the vault on the explorer — its aToken balance is what Aave has supplied, the
+              variable-debt-token balance is what it borrowed.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2.5 text-sm">
+              <a
+                href={`${explorerBase(chainId)}/address/${vault}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full border border-[var(--color-line)] px-4 py-2 text-[var(--color-ink)] hover:border-[var(--color-ink-3)]"
+              >
+                Vault on explorer ↗
+              </a>
+              <a
+                href={`${explorerBase(chainId)}/address/${vault}#tokentxns`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full border border-[var(--color-line)] px-4 py-2 text-[var(--color-ink)] hover:border-[var(--color-ink-3)]"
+              >
+                Aave token transfers ↗
+              </a>
+              <a
+                href={aaveMarketUrl(chainId)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full border border-[var(--color-line)] px-4 py-2 text-[var(--color-ink)] hover:border-[var(--color-ink-3)]"
+              >
+                Aave testnet market ↗
+              </a>
+            </div>
+            <p className="mono-num mt-3 text-xs text-[var(--color-ink-3)]">vault: {vault}</p>
+          </section>
+        )}
       </main>
     </>
   );

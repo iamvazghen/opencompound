@@ -13,7 +13,9 @@ export function Nav({ connect = false }: { connect?: boolean }) {
           <NavLink href="/strategies">Strategies</NavLink>
           <NavLink href="/docs">Docs</NavLink>
           {connect ? (
-            <div className="ml-2">
+            <div className="ml-2 flex items-center gap-2">
+              {/* Reown network switcher — pick / switch testnet chain */}
+              <appkit-network-button />
               <appkit-button />
             </div>
           ) : (

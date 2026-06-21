@@ -25,3 +25,15 @@ export function aavePool(chainId: number): `0x${string}` {
 }
 
 export const SUPPORTED = [sepolia, baseSepolia] as const;
+
+export function explorerBase(chainId: number): string {
+  return chainId === baseSepolia.id ? "https://sepolia.basescan.org" : "https://sepolia.etherscan.io";
+}
+
+// Aave's testnet app, deep-linked to the right market. Note: Aave shows the CONNECTED
+// wallet's position — the vault's position lives under the vault address, so verify the
+// vault on the block explorer (its aToken / debt-token holdings) rather than via Aave's UI.
+export function aaveMarketUrl(chainId: number): string {
+  const market = chainId === baseSepolia.id ? "proto_base_sepolia_v3" : "proto_sepolia_v3";
+  return `https://app.aave.com/?marketName=${market}`;
+}
