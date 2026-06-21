@@ -105,7 +105,20 @@ export default function Dashboard() {
       <>
         <Nav connect />
         <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
-          <p className="text-sm text-[var(--color-ink-3)]">Loading…</p>
+          {/* Branded skeleton — mirrors the dashboard layout to avoid layout shift on load. */}
+          <div className="flex items-center gap-3">
+            <span className="text-2xl text-[var(--color-accent)]">◇</span>
+            <div className="h-9 w-48 animate-pulse rounded bg-[var(--color-paper-2)]" />
+          </div>
+          <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_1.4fr]">
+            <Skeleton h="h-40" />
+            <Skeleton h="h-40" />
+          </div>
+          <Skeleton h="h-64" className="mt-6" />
+          <p className="mt-6 flex items-center gap-2 text-sm text-[var(--color-ink-3)]">
+            <span className="size-3 animate-spin rounded-full border-2 border-[var(--color-line)] border-t-[var(--color-accent)]" />
+            Loading on-chain data…
+          </p>
         </main>
       </>
     );
@@ -121,7 +134,7 @@ export default function Dashboard() {
             Connect a wallet to act — or paste any address to watch its activity read-only, no
             connection needed.
           </p>
-          <appkit-button />
+          <appkit-button balance="hide" />
           <div className="mt-2 flex w-full max-w-md gap-2">
             <input
               value={watchInput}
@@ -569,6 +582,9 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "go
 }
 function Muted({ children }: { children: React.ReactNode }) {
   return <p className="text-sm text-[var(--color-ink-2)]">{children}</p>;
+}
+function Skeleton({ h, className = "" }: { h: string; className?: string }) {
+  return <div className={`${h} ${className} animate-pulse rounded-2xl border border-[var(--color-line)] bg-[var(--color-paper-2)]`} />;
 }
 function Btn({ children, onClick, disabled, primary, danger }: {
   children: React.ReactNode; onClick: () => void; disabled?: boolean; primary?: boolean; danger?: boolean;

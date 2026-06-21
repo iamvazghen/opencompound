@@ -47,7 +47,18 @@ createAppKit({
     url: typeof window !== "undefined" ? window.location.origin : "https://opencompound.app",
     icons: ["https://opencompound.app/favicon.ico"],
   },
-  features: { analytics: false, email: false, socials: [] },
+  // Disable the modal features that call Reown's Blockchain API for token prices / history —
+  // that API doesn't serve testnets, so Swap / Activity / Buy / Send return HTTP 400. We only
+  // need connect + account here, so turn them off (kills the AppKitError 400s).
+  features: {
+    analytics: false,
+    email: false,
+    socials: [],
+    swaps: false,
+    onramp: false,
+    history: false,
+    send: false,
+  },
   themeMode: "dark",
   themeVariables: {
     "--w3m-accent": "#d1a35a",
