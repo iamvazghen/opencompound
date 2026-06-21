@@ -42,6 +42,7 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
     uint256 public targetLtvBps = 8_000; // conservative within e-mode; HF buffer left
     uint256 public maxCycles = 4;
     uint256 public slippageBps = 50; // 0.50% max swap slippage vs oracle mid
+    uint256 public safeLtvBps = 8_500; // above this, anyone can guard() down to target
     // External (staking) yield the collateral earns OUTSIDE Aave, in ray APR. wstETH ≈ 3%.
     // Added to Aave's collateral supply rate to get the true effective yield for break-even.
     // Owner-set estimate (can't be read on-chain generically). Conservative default.
@@ -49,7 +50,9 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
 
     event Leveraged(uint256 cyclesRun, uint256 borrowedTotal, uint256 suppliedTotal);
     event Deleveraged(uint256 repaid);
+    event Guarded(uint256 ltvBefore, uint256 targetLtvBps);
     event StrategyUpdated(uint256 targetLtvBps, uint256 maxCycles, uint256 slippageBps);
+    event SafeLtvUpdated(uint256 safeLtvBps);
 
     error LtvTooHigh(uint256 requested, uint256 max);
     error CyclesTooHigh(uint256 requested, uint256 max);
@@ -246,6 +249,19 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
         }
     }
 
+    /// @notice PERMISSIONLESS safety guard. Anyone (a keeper) may call this; it only acts when LTV
+    ///         has drifted ABOVE `safeLtvBps` (e.g. a wstETH/WETH wobble), deleveraging back to
+    ///         target so the position resists liquidation even if the owner is away. Reverts when
+    ///         the position is already safe.
+    function guard() external whenNotPaused nonReentrant {
+        (uint256 collBase, uint256 debtBase,,,,) = pool.getUserAccountData(address(this));
+        uint256 ltv = collBase == 0 ? 0 : (debtBase * BPS) / collBase;
+        require(ltv > safeLtvBps, "position safe");
+        uint256 excessBase = debtBase - (collBase * targetLtvBps) / BPS;
+        _deleverageByDebtValue(excessBase);
+        emit Guarded(ltv, targetLtvBps);
+    }
+
     // ───────────────────────────── Views ─────────────────────────────
 
     function healthFactor() external view returns (uint256) {
@@ -332,7 +348,15 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
         targetLtvBps = targetLtvBps_;
         maxCycles = maxCycles_;
         slippageBps = slippageBps_;
+        if (safeLtvBps <= targetLtvBps_) safeLtvBps = targetLtvBps_ + 300;
         emit StrategyUpdated(targetLtvBps_, maxCycles_, slippageBps_);
+    }
+
+    /// @notice Set the safety ceiling above which guard() deleverages to target.
+    function setSafeLtv(uint256 safeLtvBps_) external onlyOwner {
+        require(safeLtvBps_ > targetLtvBps && safeLtvBps_ <= MAX_LTV_BPS, "bad safe ltv");
+        safeLtvBps = safeLtvBps_;
+        emit SafeLtvUpdated(safeLtvBps_);
     }
 
     function setEMode(uint8 categoryId) external onlyOwner {

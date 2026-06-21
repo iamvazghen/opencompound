@@ -202,6 +202,25 @@ contract LeveragedSelfRepayingVaultTest is Test {
         assertEq(vault.currentLtvBps(), 0, "fully unlevered");
     }
 
+    /// Permissionless guard: anyone can deleverage a position that drifted above the safe LTV.
+    function test_GuardIsPermissionlessAndRestoresTarget() public {
+        _deposit(1 ether);
+        vault.setStrategy(8000, 4); // target 8000
+        vault.leverageFlash(); // LTV ~80%
+        vault.setStrategy(5000, 4); // lower the target so current LTV is now "too high"
+        vault.setSafeLtv(5300); // safe ceiling below the ~80% current LTV
+        assertGt(vault.currentLtvBps(), vault.safeLtvBps());
+
+        vm.prank(address(0xCAFE)); // NOT the owner — guard is permissionless
+        vault.guard();
+        assertApproxEqAbs(vault.currentLtvBps(), 5000, 150, "guarded back to target");
+
+        // already safe now → guard reverts (can't grief a healthy position)
+        vm.prank(address(0xCAFE));
+        vm.expectRevert();
+        vault.guard();
+    }
+
     function test_SetStrategyRejectsAboveCeilings() public {
         vm.expectRevert();
         vault.setStrategy(9_500, 4); // > 90% LTV ceiling

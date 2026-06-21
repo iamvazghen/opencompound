@@ -1,4 +1,4 @@
-// Auto-extracted from contracts/out — trimmed to UI-used members.
+// Auto-extracted from contracts/out.
 export const vaultAbi = [
   {
     "type": "constructor",
@@ -199,6 +199,13 @@ export const vaultAbi = [
   {
     "type": "function",
     "name": "emergencyUnwind",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "guard",
     "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
@@ -427,6 +434,32 @@ export const vaultAbi = [
   },
   {
     "type": "function",
+    "name": "safeLtvBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setSafeLtv",
+    "inputs": [
+      {
+        "name": "safeLtvBps_",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setStrategy",
     "inputs": [
       {
@@ -621,6 +654,25 @@ export const vaultAbi = [
   },
   {
     "type": "event",
+    "name": "Guarded",
+    "inputs": [
+      {
+        "name": "ltvBefore",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "ltvAfter",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Harvested",
     "inputs": [
       {
@@ -685,6 +737,19 @@ export const vaultAbi = [
         "type": "address",
         "indexed": false,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SafeLtvUpdated",
+    "inputs": [
+      {
+        "name": "safeLtvBps",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1019,6 +1084,22 @@ export const vaultAbi = [
         "name": "account",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PositionSafe",
+    "inputs": [
+      {
+        "name": "ltv",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "safeLtv",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },

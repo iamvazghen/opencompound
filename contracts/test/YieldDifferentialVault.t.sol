@@ -201,6 +201,19 @@ contract YieldDifferentialVaultTest is Test {
         assertGt(ltvBps, 7700);
     }
 
+    /// Permissionless guard deleverages a v2 position that drifted above the safe LTV.
+    function test_GuardIsPermissionlessWhenOverSafe() public {
+        _deposit(1 ether);
+        vault.leverage();
+        // Debt asset spikes hard → LTV climbs above the 85% safe ceiling.
+        oracle.set(address(weth), uint256(3000e8) * 150 / 100);
+        (, uint256 debtBefore,,,,) = poolMock.getUserAccountData(address(vault));
+        vm.prank(address(0xCAFE)); // permissionless
+        vault.guard();
+        (, uint256 debtAfter,,,,) = poolMock.getUserAccountData(address(vault));
+        assertLt(debtAfter, debtBefore, "guard repaid debt down toward target");
+    }
+
     function test_DeleverageReducesDebt() public {
         _deposit(1 ether);
         vault.leverage();

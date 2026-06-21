@@ -38,16 +38,22 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
 
     uint256 public targetLtvBps = 7_000; // 70% per spec
     uint256 public maxCycles = 4; // 4 loops per spec
+    // Safety ceiling: above this LTV, anyone can call guard() to deleverage back to target.
+    // Must stay below the asset's Aave liquidation threshold to be useful.
+    uint256 public safeLtvBps = 7_500;
 
     event StrategyUpdated(uint256 targetLtvBps, uint256 maxCycles);
+    event SafeLtvUpdated(uint256 safeLtvBps);
     event Leveraged(uint256 cyclesRun, uint256 totalSupplied, uint256 totalBorrowed);
     event Deleveraged(uint256 repaid, uint256 withdrawn);
+    event Guarded(uint256 ltvBefore, uint256 ltvAfter);
     event Harvested(uint256 repaidFromRewards);
     event EModeSet(uint8 categoryId);
 
     error LtvTooHigh(uint256 requested, uint256 max);
     error CyclesTooHigh(uint256 requested, uint256 max);
     error NothingToHarvest();
+    error PositionSafe(uint256 ltv, uint256 safeLtv);
 
     /// @param asset_ the single underlying token (collateral == debt)
     constructor(IERC20 asset_, IPool pool_, address owner_, string memory name_, string memory symbol_)
@@ -163,10 +169,31 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
 
     /// @notice Fully unwind (repay all debt, no residual) in a single transaction.
     function deleverageFlash() external whenNotPaused nonReentrant onlyOwner {
+        _flashUnwind(variableDebtToken.balanceOf(address(this)));
+    }
+
+    /// @notice PERMISSIONLESS safety guard. Anyone (typically a keeper bot) may call this, but it
+    ///         only acts when LTV has drifted ABOVE `safeLtvBps` — it then flash-deleverages the
+    ///         position back to `targetLtvBps`, protecting it from liquidation even if the owner
+    ///         never checks in. Reverts when the position is already safe, so it can't be used to
+    ///         grief a healthy position. Same-asset, so no swap is needed.
+    function guard() external whenNotPaused nonReentrant {
+        uint256 ltv = currentLtvBps();
+        if (ltv <= safeLtvBps) revert PositionSafe(ltv, safeLtvBps);
+        uint256 c = aToken.balanceOf(address(this));
+        uint256 d = variableDebtToken.balanceOf(address(this));
+        // Debt to repay to restore target LTV: ΔD = (D·BPS − target·C) / (BPS − target).
+        uint256 deltaD = (d * BPS - targetLtvBps * c) / (BPS - targetLtvBps);
+        _flashUnwind(deltaD);
+        emit Guarded(ltv, currentLtvBps());
+    }
+
+    function _flashUnwind(uint256 repayAmt) internal {
         uint256 debt = variableDebtToken.balanceOf(address(this));
-        if (debt == 0) return;
-        pool.flashLoanSimple(address(this), asset(), debt, abi.encode(FLASH_UNWIND), 0);
-        emit Deleveraged(debt, debt);
+        if (repayAmt > debt) repayAmt = debt;
+        if (repayAmt == 0) return;
+        pool.flashLoanSimple(address(this), asset(), repayAmt, abi.encode(FLASH_UNWIND), 0);
+        emit Deleveraged(repayAmt, repayAmt);
     }
 
     /// @inheritdoc IFlashLoanSimpleReceiver
@@ -271,7 +298,15 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
         if (maxCycles_ > MAX_CYCLES_LIMIT) revert CyclesTooHigh(maxCycles_, MAX_CYCLES_LIMIT);
         targetLtvBps = targetLtvBps_;
         maxCycles = maxCycles_;
+        if (safeLtvBps <= targetLtvBps_) safeLtvBps = targetLtvBps_ + 300; // keep safe > target
         emit StrategyUpdated(targetLtvBps_, maxCycles_);
+    }
+
+    /// @notice Set the safety ceiling above which guard() may deleverage the position to target.
+    function setSafeLtv(uint256 safeLtvBps_) external onlyOwner {
+        require(safeLtvBps_ > targetLtvBps && safeLtvBps_ <= MAX_LTV_BPS, "bad safe ltv");
+        safeLtvBps = safeLtvBps_;
+        emit SafeLtvUpdated(safeLtvBps_);
     }
 
     /// @notice Opt the vault into an Aave e-mode category (high-LTV for correlated assets).

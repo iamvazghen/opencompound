@@ -8,6 +8,7 @@ const pages = [
   ["/docs/leverage-math", "Leverage math"],
   ["/docs/self-repay", "Self-repay mechanics"],
   ["/docs/risks", "Risks & liquidation"],
+  ["/docs/guardrails", "Guardrails & safety"],
   ["/docs/contract", "Contract reference"],
   ["/docs/faq", "FAQ"],
 ];

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useAccount, useChainId, useReadContract, useReadContracts, useWriteContract } from "wagmi";
-import { erc20Abi, parseUnits } from "viem";
+import { erc20Abi, parseUnits, isAddress } from "viem";
 import { Nav } from "@/components/Nav";
 import { vaultAbi } from "@/lib/vaultAbi";
 import { yieldVaultAbi } from "@/lib/yieldVaultAbi";
@@ -16,6 +16,11 @@ export default function Dashboard() {
   const chainId = useChainId();
   const [version, setVersion] = useState<VaultVersion>("v1");
   const [assetIdx, setAssetIdx] = useState(0);
+  // Watch-only: paste any address to view its activity without connecting; no actions possible.
+  const [watchInput, setWatchInput] = useState("");
+  const [watchAddress, setWatchAddress] = useState<`0x${string}` | undefined>();
+  const viewAddress = watchAddress ?? address;
+  const readOnly = !!watchAddress; // watching = read-only even if a wallet is also connected
 
   const pool = aavePool(chainId);
   const markets = v1Markets(chainId);
@@ -26,13 +31,13 @@ export default function Dashboard() {
   const vaultLive = vault !== ZERO;
   const abi = version === "v1" ? vaultAbi : yieldVaultAbi;
 
-  // Auto-detect the connected wallet's existing Aave position.
+  // Aave position of the viewed address (connected wallet, or a watched address).
   const aave = useReadContract({
     address: pool === ZERO ? undefined : pool,
     abi: aavePoolAbi,
     functionName: "getUserAccountData",
-    args: address ? [address] : undefined,
-    query: { enabled: isConnected && pool !== ZERO },
+    args: viewAddress ? [viewAddress] : undefined,
+    query: { enabled: !!viewAddress && pool !== ZERO },
   });
 
   // Vault reads — shared carry views (both vaults expose them) + the raw rate pair.
@@ -45,8 +50,9 @@ export default function Dashboard() {
     "breakEvenLtvBps",
     "recommendedLtvBps",
     version === "v1" ? "currentRates" : "aaveRates",
+    "safeLtvBps", // index [8]
   ];
-  if (version === "v2") fns.push("stakingYieldRay"); // index [8], v2 only
+  if (version === "v2") fns.push("stakingYieldRay"); // index [9], v2 only
   const vaultReads = useReadContracts({
     contracts: vaultLive ? fns.map((functionName) => ({ address: vault, abi, functionName })) : [],
     query: { enabled: vaultLive },
@@ -59,25 +65,47 @@ export default function Dashboard() {
     if (!rate) return {};
     const borrowPct = rayToPct(rate[1]);
     let supplyPct = rayToPct(rate[0]);
-    if (version === "v2") supplyPct += rayToPct((vaultReads.data?.[8]?.result as bigint) ?? 0n);
+    if (version === "v2") supplyPct += rayToPct((vaultReads.data?.[9]?.result as bigint) ?? 0n);
     return {
       breakEvenBps: Number((vaultReads.data?.[5]?.result as bigint) ?? 0n),
       recommendedBps: Number((vaultReads.data?.[6]?.result as bigint) ?? 0n),
+      safeBps: Number((vaultReads.data?.[8]?.result as bigint) ?? 0n),
       supplyPct,
       borrowPct,
     };
   }, [vaultReads.data, version]);
 
-  if (!isConnected) {
+  const startWatch = () => {
+    if (isAddress(watchInput.trim())) setWatchAddress(watchInput.trim() as `0x${string}`);
+  };
+
+  if (!isConnected && !watchAddress) {
     return (
       <>
         <Nav connect />
         <main className="flex flex-1 flex-col items-center justify-center gap-5 px-6 text-center">
-          <h1 className="text-[var(--text-display-s)]">Connect your wallet</h1>
+          <h1 className="text-[var(--text-display-s)]">Connect or watch</h1>
           <p className="max-w-md text-[var(--color-ink-2)]">
-            We&apos;ll auto-detect any Aave V3 position you already hold on this network.
+            Connect a wallet to act — or paste any address to watch its activity read-only, no
+            connection needed.
           </p>
           <appkit-button />
+          <div className="mt-2 flex w-full max-w-md gap-2">
+            <input
+              value={watchInput}
+              onChange={(e) => setWatchInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && startWatch()}
+              placeholder="0x… address to watch"
+              className="mono-num flex-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-paper)] px-3 py-2 text-sm text-[var(--color-ink)]"
+            />
+            <button
+              onClick={startWatch}
+              disabled={!isAddress(watchInput.trim())}
+              className="rounded-lg border border-[var(--color-line)] px-4 py-2 text-sm text-[var(--color-ink)] hover:border-[var(--color-ink-3)] disabled:opacity-40"
+            >
+              Watch
+            </button>
+          </div>
         </main>
       </>
     );
@@ -87,6 +115,19 @@ export default function Dashboard() {
     <>
       <Nav connect />
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
+        {readOnly && (
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 p-3 text-sm">
+            <span className="text-[var(--color-ink)]">
+              👁 Watch-only — viewing <span className="mono-num text-[var(--color-accent)]">{watchAddress?.slice(0, 6)}…{watchAddress?.slice(-4)}</span>. No actions possible.
+            </span>
+            <button
+              onClick={() => { setWatchAddress(undefined); setWatchInput(""); }}
+              className="rounded-full border border-[var(--color-line)] px-3 py-1 text-[var(--color-ink-2)] hover:border-[var(--color-ink-3)]"
+            >
+              Exit watch
+            </button>
+          </div>
+        )}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-[var(--text-display-s)]">Dashboard</h1>
@@ -155,6 +196,11 @@ export default function Dashboard() {
                   value={signal.breakEvenBps ? fmtPct(signal.breakEvenBps / 100) : "—"}
                   tone="good"
                 />
+                <Stat
+                  label="Safe LTV (guard)"
+                  value={signal.safeBps ? fmtPct(signal.safeBps / 100) : "—"}
+                  tone="warn"
+                />
               </div>
             )}
           </Panel>
@@ -173,6 +219,7 @@ export default function Dashboard() {
           recommendedBps={signal.recommendedBps}
           supplyPct={signal.supplyPct}
           borrowPct={signal.borrowPct}
+          readOnly={readOnly}
         />
 
         {vaultLive && (
@@ -259,6 +306,7 @@ function StrategyPanel({
   recommendedBps,
   supplyPct,
   borrowPct,
+  readOnly,
 }: {
   version: VaultVersion;
   vault: `0x${string}`;
@@ -272,6 +320,7 @@ function StrategyPanel({
   recommendedBps?: number;
   supplyPct?: number;
   borrowPct?: number;
+  readOnly: boolean;
 }) {
   const { address } = useAccount();
   const { writeContract, isPending } = useWriteContract();
@@ -403,7 +452,11 @@ function StrategyPanel({
       )}
 
       {/* Actions */}
-      {!vaultLive ? (
+      {readOnly ? (
+        <p className="mt-6 rounded-xl border border-[var(--color-line)] bg-[var(--color-paper-2)] p-3 text-sm text-[var(--color-ink-3)]">
+          👁 Watch-only — all data is visible, but actions are disabled. Connect a wallet to act.
+        </p>
+      ) : !vaultLive ? (
         <p className="mt-6 text-sm text-[var(--color-ink-3)]">Deploy the vault to enable actions.</p>
       ) : (
         <div className="mt-6 flex flex-wrap gap-2.5">
@@ -418,13 +471,19 @@ function StrategyPanel({
           ) : (
             <Btn onClick={() => w("deleverage", [2n ** 256n - 1n])} disabled={isPending}>Deleverage</Btn>
           )}
+          <Btn onClick={() => w("guard")} disabled={isPending}>Guard</Btn>
           <Btn onClick={() => w("emergencyUnwind")} disabled={isPending} danger>Emergency unwind</Btn>
         </div>
       )}
-      <p className="mt-3 text-xs text-[var(--color-ink-3)]">
-        Flash leverage hits the exact target LTV in one tx (~327k gas); Flash unwind clears all debt in
-        one tx. The loop / iterative buttons are the no-flash fallbacks.
-      </p>
+      {!readOnly && (
+        <p className="mt-3 text-xs text-[var(--color-ink-3)]">
+          Flash leverage hits the exact target LTV in one tx; Flash unwind clears all debt in one tx.
+          <strong className="text-[var(--color-ink-2)]"> Guard</strong> is permissionless — anyone (or a
+          keeper bot) can call it to deleverage the position back to target if LTV ever rises above the
+          Safe LTV, protecting it from liquidation even when you&apos;re away. It reverts if the position
+          is already safe.
+        </p>
+      )}
     </section>
   );
 }
