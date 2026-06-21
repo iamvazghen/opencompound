@@ -26,12 +26,20 @@ export default function Guardrails() {
           can protect your position when you&apos;re not watching. You don&apos;t have to be online.
         </li>
         <li>
-          <strong>Only acts when unsafe</strong> — it reverts unless LTV has risen above the configurable{" "}
-          <strong>Safe LTV</strong> ceiling. When it does fire, it deleverages the position straight back
-          to target. Because it can only ever <em>reduce</em> risk, an attacker can&apos;t grief a
-          healthy position with it.
+          <strong>Only acts when unsafe</strong> — it reverts unless LTV has risen above the{" "}
+          <strong>live Safe LTV</strong> ceiling. When it does fire, it deleverages straight back to a
+          safe LTV. Because it can only ever <em>reduce</em> risk, it can&apos;t be used to grief a
+          healthy position.
         </li>
       </ul>
+      <p className="rounded-xl border border-neutral-800 bg-neutral-900 p-3 text-sm">
+        <strong>The Safe LTV is not a hardcoded number.</strong> It is computed on every call as{" "}
+        <code>liquidationThresholdBps() × safetyBufferBps</code> — i.e. a fraction (default 90%) of the
+        asset&apos;s <em>live</em> Aave liquidation threshold, read fresh each time. So it adapts per
+        asset and tracks any change Aave makes; it can never go stale. The only stored value is the
+        relative buffer, not an absolute LTV. <code>breakEvenLtvBps</code> and{" "}
+        <code>recommendedLtvBps</code> are dynamic the same way.
+      </p>
       <p>
         For v1 (same asset) the guard needs no swap, so it&apos;s cheap and reliable. For v2 it swaps
         collateral to debt to repay, like a normal deleverage.

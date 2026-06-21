@@ -36,6 +36,7 @@ export default function DashboardDocs() {
         <tbody>
           {[
             ["Deposit", "Supplies your asset to Aave via the vault; mints you shares."],
+            ["Migrate aTokens (v1)", "Already supplied to Aave yourself? Move that position in by transferring your aTokens — no new funds. (Existing debt can't move; Aave debt is non-transferable.)"],
             ["Flash leverage", "Builds the position to the exact target LTV in one transaction (flash loan)."],
             ["Leverage (loop)", "The no-flash fallback: borrows + re-supplies in cycles."],
             ["Harvest (v1)", "Repays debt from any idle balance / claimed rewards in the vault."],

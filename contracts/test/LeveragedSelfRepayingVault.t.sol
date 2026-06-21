@@ -202,23 +202,40 @@ contract LeveragedSelfRepayingVaultTest is Test {
         assertEq(vault.currentLtvBps(), 0, "fully unlevered");
     }
 
-    /// Permissionless guard: anyone can deleverage a position that drifted above the safe LTV.
-    function test_GuardIsPermissionlessAndRestoresTarget() public {
+    /// Safe LTV is DYNAMIC: liveLiquidationThreshold (8000 in the mock) × buffer (90%) = 7200.
+    function test_MaxSafeLtvIsDynamic() public view {
+        assertEq(vault.liquidationThresholdBps(), 8000, "live threshold");
+        assertEq(vault.maxSafeLtvBps(), 7200, "threshold x 90pct buffer, not hardcoded");
+    }
+
+    /// Permissionless guard fires when LTV exceeds the LIVE safe ceiling, no stored LTV involved.
+    function test_GuardIsPermissionlessAboveLiveSafeLtv() public {
         _deposit(1 ether);
-        vault.setStrategy(8000, 4); // target 8000
-        vault.leverageFlash(); // LTV ~80%
-        vault.setStrategy(5000, 4); // lower the target so current LTV is now "too high"
-        vault.setSafeLtv(5300); // safe ceiling below the ~80% current LTV
-        assertGt(vault.currentLtvBps(), vault.safeLtvBps());
+        vault.setStrategy(8000, 4);
+        vault.leverageFlash(); // LTV ~80% > maxSafe 72%
+        assertGt(vault.currentLtvBps(), vault.maxSafeLtvBps());
 
-        vm.prank(address(0xCAFE)); // NOT the owner — guard is permissionless
+        vm.prank(address(0xCAFE)); // NOT the owner — permissionless
         vault.guard();
-        assertApproxEqAbs(vault.currentLtvBps(), 5000, 150, "guarded back to target");
+        assertLe(vault.currentLtvBps(), vault.maxSafeLtvBps(), "guarded under the live safe ceiling");
 
-        // already safe now → guard reverts (can't grief a healthy position)
         vm.prank(address(0xCAFE));
-        vm.expectRevert();
+        vm.expectRevert(); // already safe → reverts (no griefing)
         vault.guard();
+    }
+
+    /// Migrate an existing Aave supply position (aTokens) into the vault — no new funds.
+    function test_DepositATokenMigratesExistingPosition() public {
+        underlying.mint(user, 1 ether);
+        vm.startPrank(user);
+        underlying.approve(address(poolMock), 1 ether);
+        poolMock.supply(address(underlying), 1 ether, user, 0); // user supplies to Aave directly
+        poolMock.aToken().approve(address(vault), 1 ether);
+        uint256 shares = vault.depositAToken(1 ether, user); // brings the aTokens into the vault
+        vm.stopPrank();
+        assertEq(shares, 1 ether, "shares for migrated collateral");
+        assertEq(vault.balanceOf(user), 1 ether);
+        assertApproxEqAbs(vault.totalAssets(), 1 ether, 2);
     }
 
     function test_SetStrategyRejectsAboveCeilings() public {

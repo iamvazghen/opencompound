@@ -23,13 +23,13 @@ export const V1_MARKETS: Record<number, V1Market[]> = {
     {
       symbol: "WETH",
       asset: "0x4200000000000000000000000000000000000006",
-      vault: "0xefcF6aeeE73F8d2C5bfD95773E30Bc41cDc3a00e",
+      vault: "0x4b2786AA5a25Caf2EC8bD04ec47313962Bf9Db2A",
       decimals: 18,
     },
     {
       symbol: "USDC",
       asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-      vault: "0x25270Af8251ED63904C921FBd99afC029362579c",
+      vault: "0x47076D93c063A30F28168c9590Ac58D4a69dCFBe",
       decimals: 6,
     },
   ],

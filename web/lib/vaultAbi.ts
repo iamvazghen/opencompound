@@ -46,6 +46,30 @@ export const vaultAbi = [
   },
   {
     "type": "function",
+    "name": "allowance",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "spender",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "asset",
     "inputs": [],
     "outputs": [
@@ -198,6 +222,30 @@ export const vaultAbi = [
   },
   {
     "type": "function",
+    "name": "depositAToken",
+    "inputs": [
+      {
+        "name": "aTokenAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "receiver",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "shares",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "emergencyUnwind",
     "inputs": [],
     "outputs": [],
@@ -271,7 +319,33 @@ export const vaultAbi = [
   },
   {
     "type": "function",
+    "name": "liquidationThresholdBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "maxCycles",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "maxSafeLtvBps",
     "inputs": [],
     "outputs": [
       {
@@ -434,7 +508,7 @@ export const vaultAbi = [
   },
   {
     "type": "function",
-    "name": "safeLtvBps",
+    "name": "safetyBufferBps",
     "inputs": [],
     "outputs": [
       {
@@ -447,10 +521,10 @@ export const vaultAbi = [
   },
   {
     "type": "function",
-    "name": "setSafeLtv",
+    "name": "setSafetyBuffer",
     "inputs": [
       {
-        "name": "safeLtvBps_",
+        "name": "safetyBufferBps_",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -743,10 +817,10 @@ export const vaultAbi = [
   },
   {
     "type": "event",
-    "name": "SafeLtvUpdated",
+    "name": "SafetyBufferUpdated",
     "inputs": [
       {
-        "name": "safeLtvBps",
+        "name": "safetyBufferBps",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1097,7 +1171,7 @@ export const vaultAbi = [
         "internalType": "uint256"
       },
       {
-        "name": "safeLtv",
+        "name": "maxSafeLtv",
         "type": "uint256",
         "internalType": "uint256"
       }

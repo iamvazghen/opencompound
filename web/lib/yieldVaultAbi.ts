@@ -71,6 +71,30 @@ export const yieldVaultAbi = [
   },
   {
     "type": "function",
+    "name": "allowance",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "spender",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "asset",
     "inputs": [],
     "outputs": [
@@ -245,7 +269,33 @@ export const yieldVaultAbi = [
   },
   {
     "type": "function",
+    "name": "liquidationThresholdBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "maxCycles",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "maxSafeLtvBps",
     "inputs": [],
     "outputs": [
       {
@@ -421,7 +471,7 @@ export const yieldVaultAbi = [
   },
   {
     "type": "function",
-    "name": "safeLtvBps",
+    "name": "safetyBufferBps",
     "inputs": [],
     "outputs": [
       {
@@ -434,10 +484,10 @@ export const yieldVaultAbi = [
   },
   {
     "type": "function",
-    "name": "setSafeLtv",
+    "name": "setSafetyBuffer",
     "inputs": [
       {
-        "name": "safeLtvBps_",
+        "name": "safetyBufferBps_",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -716,10 +766,10 @@ export const yieldVaultAbi = [
   },
   {
     "type": "event",
-    "name": "SafeLtvUpdated",
+    "name": "SafetyBufferUpdated",
     "inputs": [
       {
-        "name": "safeLtvBps",
+        "name": "safetyBufferBps",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"

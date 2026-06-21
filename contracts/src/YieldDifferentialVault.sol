@@ -42,7 +42,9 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
     uint256 public targetLtvBps = 8_000; // conservative within e-mode; HF buffer left
     uint256 public maxCycles = 4;
     uint256 public slippageBps = 50; // 0.50% max swap slippage vs oracle mid
-    uint256 public safeLtvBps = 8_500; // above this, anyone can guard() down to target
+    // Relative safety buffer — guard keeps LTV ≤ this fraction of the LIVE liquidation threshold.
+    // Not a hardcoded LTV; the absolute ceiling is computed live in maxSafeLtvBps(). 9000 = 90%.
+    uint256 public safetyBufferBps = 9_000;
     // External (staking) yield the collateral earns OUTSIDE Aave, in ray APR. wstETH ≈ 3%.
     // Added to Aave's collateral supply rate to get the true effective yield for break-even.
     // Owner-set estimate (can't be read on-chain generically). Conservative default.
@@ -52,7 +54,7 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
     event Deleveraged(uint256 repaid);
     event Guarded(uint256 ltvBefore, uint256 targetLtvBps);
     event StrategyUpdated(uint256 targetLtvBps, uint256 maxCycles, uint256 slippageBps);
-    event SafeLtvUpdated(uint256 safeLtvBps);
+    event SafetyBufferUpdated(uint256 safetyBufferBps);
 
     error LtvTooHigh(uint256 requested, uint256 max);
     error CyclesTooHigh(uint256 requested, uint256 max);
@@ -253,13 +255,30 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
     ///         has drifted ABOVE `safeLtvBps` (e.g. a wstETH/WETH wobble), deleveraging back to
     ///         target so the position resists liquidation even if the owner is away. Reverts when
     ///         the position is already safe.
+    /// @notice The LIVE Aave liquidation threshold for the position (e-mode-aware), bps.
+    function liquidationThresholdBps() public view returns (uint256) {
+        (,,, uint256 lt,,) = pool.getUserAccountData(address(this));
+        if (lt != 0) return lt;
+        return (pool.getReserveData(asset()).configuration >> 16) & 0xFFFF;
+    }
+
+    /// @notice Dynamic safe-LTV ceiling = liveLiquidationThreshold × safetyBufferBps. Recomputed
+    ///         each call — adapts to the assets and the market, never hardcoded/stale.
+    function maxSafeLtvBps() public view returns (uint256) {
+        return (liquidationThresholdBps() * safetyBufferBps) / BPS;
+    }
+
+    /// @notice PERMISSIONLESS guard — anyone can call; only acts when LTV exceeds the LIVE
+    ///         maxSafeLtvBps(), deleveraging back to target. Reverts when already safe.
     function guard() external whenNotPaused nonReentrant {
         (uint256 collBase, uint256 debtBase,,,,) = pool.getUserAccountData(address(this));
         uint256 ltv = collBase == 0 ? 0 : (debtBase * BPS) / collBase;
-        require(ltv > safeLtvBps, "position safe");
-        uint256 excessBase = debtBase - (collBase * targetLtvBps) / BPS;
+        uint256 maxSafe = maxSafeLtvBps();
+        require(ltv > maxSafe, "position safe");
+        uint256 restore = targetLtvBps < maxSafe ? targetLtvBps : (maxSafe * 9000) / BPS;
+        uint256 excessBase = debtBase - (collBase * restore) / BPS;
         _deleverageByDebtValue(excessBase);
-        emit Guarded(ltv, targetLtvBps);
+        emit Guarded(ltv, restore);
     }
 
     // ───────────────────────────── Views ─────────────────────────────
@@ -348,15 +367,14 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
         targetLtvBps = targetLtvBps_;
         maxCycles = maxCycles_;
         slippageBps = slippageBps_;
-        if (safeLtvBps <= targetLtvBps_) safeLtvBps = targetLtvBps_ + 300;
         emit StrategyUpdated(targetLtvBps_, maxCycles_, slippageBps_);
     }
 
-    /// @notice Set the safety ceiling above which guard() deleverages to target.
-    function setSafeLtv(uint256 safeLtvBps_) external onlyOwner {
-        require(safeLtvBps_ > targetLtvBps && safeLtvBps_ <= MAX_LTV_BPS, "bad safe ltv");
-        safeLtvBps = safeLtvBps_;
-        emit SafeLtvUpdated(safeLtvBps_);
+    /// @notice Set the relative safety buffer (bps of the live liquidation threshold). 9000 = 90%.
+    function setSafetyBuffer(uint256 safetyBufferBps_) external onlyOwner {
+        require(safetyBufferBps_ > 0 && safetyBufferBps_ <= BPS, "bad buffer");
+        safetyBufferBps = safetyBufferBps_;
+        emit SafetyBufferUpdated(safetyBufferBps_);
     }
 
     function setEMode(uint8 categoryId) external onlyOwner {

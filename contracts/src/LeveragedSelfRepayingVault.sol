@@ -36,14 +36,16 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
     IERC20 public immutable aToken; // Aave receipt for supplied collateral
     IERC20 public immutable variableDebtToken; // Aave variable debt receipt
 
-    uint256 public targetLtvBps = 7_000; // 70% per spec
+    uint256 public targetLtvBps = 7_000; // user's intended leverage setpoint
     uint256 public maxCycles = 4; // 4 loops per spec
-    // Safety ceiling: above this LTV, anyone can call guard() to deleverage back to target.
-    // Must stay below the asset's Aave liquidation threshold to be useful.
-    uint256 public safeLtvBps = 7_500;
+    // The ONLY stored safety knob is a RELATIVE buffer: the guard keeps LTV at or below this
+    // fraction of the asset's LIVE Aave liquidation threshold. The absolute safe LTV is never
+    // stored — it's computed on every call from the current threshold (see maxSafeLtvBps), so it
+    // adapts per-asset and can never go stale. 9000 = stay at ≤ 90% of the liquidation threshold.
+    uint256 public safetyBufferBps = 9_000;
 
     event StrategyUpdated(uint256 targetLtvBps, uint256 maxCycles);
-    event SafeLtvUpdated(uint256 safeLtvBps);
+    event SafetyBufferUpdated(uint256 safetyBufferBps);
     event Leveraged(uint256 cyclesRun, uint256 totalSupplied, uint256 totalBorrowed);
     event Deleveraged(uint256 repaid, uint256 withdrawn);
     event Guarded(uint256 ltvBefore, uint256 ltvAfter);
@@ -53,7 +55,7 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
     error LtvTooHigh(uint256 requested, uint256 max);
     error CyclesTooHigh(uint256 requested, uint256 max);
     error NothingToHarvest();
-    error PositionSafe(uint256 ltv, uint256 safeLtv);
+    error PositionSafe(uint256 ltv, uint256 maxSafeLtv);
 
     /// @param asset_ the single underlying token (collateral == debt)
     constructor(IERC20 asset_, IPool pool_, address owner_, string memory name_, string memory symbol_)
@@ -84,6 +86,24 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
     function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal override {
         super._deposit(caller, receiver, assets, shares); // pulls `assets` into this contract
         pool.supply(asset(), assets, address(this), 0);
+    }
+
+    /// @notice Migrate an EXISTING Aave supply position into the vault without new funds: a user who
+    ///         already supplied this asset to Aave (and holds aTokens) transfers those aTokens in and
+    ///         receives vault shares for the equity. No re-supply, no swap. Note: only the COLLATERAL
+    ///         (aTokens) can move — Aave debt is non-transferable, so a user with existing debt must
+    ///         repay/unwind it on their own account first.
+    function depositAToken(uint256 aTokenAmount, address receiver)
+        external
+        whenNotPaused
+        nonReentrant
+        returns (uint256 shares)
+    {
+        require(aTokenAmount > 0, "zero");
+        shares = previewDeposit(aTokenAmount); // value the incoming aTokens add, in shares
+        aToken.safeTransferFrom(msg.sender, address(this), aTokenAmount); // aTokens already on Aave
+        _mint(receiver, shares);
+        emit Deposit(msg.sender, receiver, aTokenAmount, shares);
     }
 
     /// @dev On withdraw, pull from Aave. Aave reverts if this would break the health
@@ -172,18 +192,36 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
         _flashUnwind(variableDebtToken.balanceOf(address(this)));
     }
 
+    /// @notice The asset's LIVE Aave liquidation threshold (bps). Reads the position's effective
+    ///         threshold when there is collateral, else decodes the reserve's configured value, so
+    ///         it always reflects current Aave governance — never a value we hardcoded.
+    function liquidationThresholdBps() public view returns (uint256) {
+        (,,, uint256 lt,,) = pool.getUserAccountData(address(this));
+        if (lt != 0) return lt;
+        return (pool.getReserveData(asset()).configuration >> 16) & 0xFFFF; // bits 16-31 = liq threshold
+    }
+
+    /// @notice The dynamic safe-LTV ceiling = liveLiquidationThreshold × safetyBufferBps. Computed
+    ///         on every call, so it tracks the asset and the market — guard() fires above this.
+    function maxSafeLtvBps() public view returns (uint256) {
+        return (liquidationThresholdBps() * safetyBufferBps) / BPS;
+    }
+
     /// @notice PERMISSIONLESS safety guard. Anyone (typically a keeper bot) may call this, but it
-    ///         only acts when LTV has drifted ABOVE `safeLtvBps` — it then flash-deleverages the
-    ///         position back to `targetLtvBps`, protecting it from liquidation even if the owner
-    ///         never checks in. Reverts when the position is already safe, so it can't be used to
-    ///         grief a healthy position. Same-asset, so no swap is needed.
+    ///         only acts when LTV has drifted ABOVE the LIVE maxSafeLtvBps() — it then
+    ///         flash-deleverages the position back to a safe LTV, protecting it from liquidation even
+    ///         if the owner never checks in. Reverts when the position is already safe (no griefing).
+    ///         Same-asset, so no swap is needed. The trigger adapts to live rates/threshold; nothing
+    ///         is hardcoded.
     function guard() external whenNotPaused nonReentrant {
         uint256 ltv = currentLtvBps();
-        if (ltv <= safeLtvBps) revert PositionSafe(ltv, safeLtvBps);
+        uint256 maxSafe = maxSafeLtvBps();
+        if (ltv <= maxSafe) revert PositionSafe(ltv, maxSafe);
+        // Restore to the user's target if it's safe, otherwise to 90% of the live safe ceiling.
+        uint256 restore = targetLtvBps < maxSafe ? targetLtvBps : (maxSafe * 9000) / BPS;
         uint256 c = aToken.balanceOf(address(this));
         uint256 d = variableDebtToken.balanceOf(address(this));
-        // Debt to repay to restore target LTV: ΔD = (D·BPS − target·C) / (BPS − target).
-        uint256 deltaD = (d * BPS - targetLtvBps * c) / (BPS - targetLtvBps);
+        uint256 deltaD = (d * BPS - restore * c) / (BPS - restore); // ΔD to restore `restore` LTV
         _flashUnwind(deltaD);
         emit Guarded(ltv, currentLtvBps());
     }
@@ -298,15 +336,15 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
         if (maxCycles_ > MAX_CYCLES_LIMIT) revert CyclesTooHigh(maxCycles_, MAX_CYCLES_LIMIT);
         targetLtvBps = targetLtvBps_;
         maxCycles = maxCycles_;
-        if (safeLtvBps <= targetLtvBps_) safeLtvBps = targetLtvBps_ + 300; // keep safe > target
         emit StrategyUpdated(targetLtvBps_, maxCycles_);
     }
 
-    /// @notice Set the safety ceiling above which guard() may deleverage the position to target.
-    function setSafeLtv(uint256 safeLtvBps_) external onlyOwner {
-        require(safeLtvBps_ > targetLtvBps && safeLtvBps_ <= MAX_LTV_BPS, "bad safe ltv");
-        safeLtvBps = safeLtvBps_;
-        emit SafeLtvUpdated(safeLtvBps_);
+    /// @notice Set the safety buffer (bps) — guard() keeps LTV at ≤ this fraction of the live
+    ///         liquidation threshold. A relative ratio, not a hardcoded LTV. 9000 = 90%.
+    function setSafetyBuffer(uint256 safetyBufferBps_) external onlyOwner {
+        require(safetyBufferBps_ > 0 && safetyBufferBps_ <= BPS, "bad buffer");
+        safetyBufferBps = safetyBufferBps_;
+        emit SafetyBufferUpdated(safetyBufferBps_);
     }
 
     /// @notice Opt the vault into an Aave e-mode category (high-LTV for correlated assets).

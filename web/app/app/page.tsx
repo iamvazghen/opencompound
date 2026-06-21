@@ -50,7 +50,7 @@ export default function Dashboard() {
     "breakEvenLtvBps",
     "recommendedLtvBps",
     version === "v1" ? "currentRates" : "aaveRates",
-    "safeLtvBps", // index [8]
+    "maxSafeLtvBps", // index [8] — DYNAMIC: live liquidation threshold × safety buffer
   ];
   if (version === "v2") fns.push("stakingYieldRay"); // index [9], v2 only
   const vaultReads = useReadContracts({
@@ -165,7 +165,7 @@ export default function Dashboard() {
 
         {/* Workbench: position rail + strategy/actions */}
         <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_1.4fr]">
-          <Panel title="Your Aave position">
+          <Panel title="Your direct Aave position">
             {pool === ZERO ? (
               <Muted>Switch to Sepolia or Base Sepolia.</Muted>
             ) : aave.isLoading ? (
@@ -175,6 +175,11 @@ export default function Dashboard() {
             ) : (
               <Muted>No position found.</Muted>
             )}
+            <p className="mt-3 text-xs text-[var(--color-ink-3)]">
+              This is what {readOnly ? "this address holds" : "you hold"} on Aave <em>directly</em>. Funds
+              you put through a vault show as $0 here — they live under the vault&apos;s address (see Vault
+              status). Already supplied to Aave yourself? You can migrate that position in below.
+            </p>
           </Panel>
 
           <Panel title="Vault status">
@@ -197,7 +202,7 @@ export default function Dashboard() {
                   tone="good"
                 />
                 <Stat
-                  label="Safe LTV (guard)"
+                  label="Safe LTV (live)"
                   value={signal.safeBps ? fmtPct(signal.safeBps / 100) : "—"}
                   tone="warn"
                 />
@@ -344,6 +349,22 @@ function StrategyPanel({
     writeContract({ address: assetAddr, abi: erc20Abi, functionName: "approve", args: [vault, wad] });
     w("deposit", [wad, address]);
   };
+
+  // Migrate an existing Aave supply position: approve the vault for the user's aTokens, then
+  // depositAToken — no new funds (v1 only). aToken address read from the vault.
+  const aTokenRead = useReadContract({
+    address: version === "v1" && vaultLive ? vault : undefined,
+    abi: vaultAbi,
+    functionName: "aToken",
+    query: { enabled: version === "v1" && vaultLive },
+  });
+  const migrateATokens = () => {
+    const aTok = aTokenRead.data as `0x${string}` | undefined;
+    if (!aTok || !address) return;
+    const wad = parseUnits(deposit || "0", decimals);
+    writeContract({ address: aTok, abi: erc20Abi, functionName: "approve", args: [vault, wad] });
+    w("depositAToken", [wad, address]);
+  };
   const setLtv = (ltvBps: number, cycles: number) =>
     version === "v1"
       ? w("setStrategy", [BigInt(ltvBps), BigInt(cycles)])
@@ -461,6 +482,9 @@ function StrategyPanel({
       ) : (
         <div className="mt-6 flex flex-wrap gap-2.5">
           <Btn onClick={doDeposit} disabled={isPending} primary>Deposit</Btn>
+          {version === "v1" && (
+            <Btn onClick={migrateATokens} disabled={isPending}>Migrate aTokens</Btn>
+          )}
           <Btn onClick={applyPreset} disabled={isPending}>Apply {preset.label}</Btn>
           <Btn onClick={() => w("leverageFlash")} disabled={isPending} primary>Flash leverage</Btn>
           <Btn onClick={() => w("leverage")} disabled={isPending}>Leverage (loop)</Btn>
