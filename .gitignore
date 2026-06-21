@@ -1,0 +1,15 @@
+# deps & build
+**/node_modules/
+contracts/out/
+contracts/cache/
+contracts/lib/
+# learn-from-only, not part of this project
+reference/
+# next.js
+web/.next/
+web/out/
+# env & local
+.env
+.env.*
+!.env.example
+*.local
