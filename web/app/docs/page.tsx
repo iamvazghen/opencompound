@@ -24,8 +24,15 @@ export default function DocsOverview() {
         <strong>Self-Repaying (v2, yield-differential)</strong> — supply a yield-bearing asset (wstETH),
         borrow its base (WETH) in e-mode; positive carry means the debt self-repays over time.
       </p>
-      <p className="pt-4 text-sm text-neutral-500">
-        Read the <a className="text-emerald-400" href="/docs/leverage-math">leverage math</a> next.
+      <p>
+        Positions are <strong>real Aave V3 positions</strong> — the vault genuinely supplies and borrows
+        on Aave and holds the position on your behalf; it is not a simulation. Start with{" "}
+        <a className="text-emerald-400" href="/docs/architecture">How it works (Aave)</a> to see the
+        end-to-end fund flow, then <a className="text-emerald-400" href="/docs/dashboard">Using the dashboard</a>.
+      </p>
+      <p className="pt-2 text-sm text-neutral-500">
+        For the strategy economics and benefits (no code), see the{" "}
+        <a className="text-emerald-400" href="/strategies">strategy overviews</a>.
       </p>
     </>
   );
