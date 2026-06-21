@@ -27,7 +27,8 @@ v1 gives you the leverage loop and an honest reward-funded repay sink. v2 is whe
 OpenCompound/
 ├── contracts/        Foundry project — the vault + Aave interfaces + tests   ✅ built, 5/5 green
 │   └── src/LeveragedSelfRepayingVault.sol
-├── web/              Next.js dashboard + landing + docs                      🔜 next
+├── web/              Next.js dashboard + landing + docs                      ✅ built, builds clean
+├── FINANCIAL-REVIEW.md  Viability analysis of both strategies                ✅
 ├── reference/        Cloned repos to learn from (git-ignored, not shipped)
 │   ├── aave-vault/        Aave's official ERC-4626 vault
 │   ├── v2-foundry/        Alchemix — the self-repaying pioneer
@@ -62,9 +63,18 @@ forge test          # 5 passing: deposit, leverage loop, harvest, deleverage, st
 Next.js 15 (App Router) + TypeScript + Tailwind + shadcn/ui + wagmi/viem + RainbowKit.
 
 - **Landing** → links to **Dashboard** and **Docs**.
-- **Dashboard** → connect wallet → auto-detect existing Aave positions → toggle **Leverage** vs **Self-Repaying** mode → simulate cycles/LTV → execute via the vault, with live health-factor and liquidation-risk indicators.
+- **Dashboard** → connect wallet (Reown AppKit) → auto-detect existing Aave positions → toggle **Leverage** vs **Self-Repaying** mode → simulate cycles/LTV → execute via the vault, with live health-factor and a net-carry warning that blocks looping into a guaranteed loss.
 
-Not built yet — see [ROADMAP.md](./ROADMAP.md) for the build order.
+### Run the web app
+
+```bash
+cd web
+cp .env.local.example .env.local   # optional: set your own Reown projectId + vault addresses
+npm install
+npm run dev                        # http://localhost:3000
+```
+
+Wallet connect uses Reown AppKit (`createAppKit` + `WagmiAdapter`), the same proven pattern as the IceSwap app. The WalletConnect projectId is public (domain-restricted, not a secret) with a dev fallback baked in.
 
 ## Tech stack
 

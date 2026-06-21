@@ -165,6 +165,17 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
         return hf;
     }
 
+    /// @notice Live Aave rates for the underlying, in ray (1e27). For a SINGLE-ASSET loop,
+    ///         net carry = supplyRateRay − borrowRateRay and is ALWAYS negative — the UI
+    ///         reads this to warn before a user loops into a guaranteed loss. See
+    ///         FINANCIAL-REVIEW.md.
+    /// @return supplyRateRay current liquidity (supply) rate
+    /// @return borrowRateRay current variable borrow rate
+    function currentRates() external view returns (uint256 supplyRateRay, uint256 borrowRateRay) {
+        ReserveDataLegacy memory r = pool.getReserveData(asset());
+        return (r.currentLiquidityRate, r.currentVariableBorrowRate);
+    }
+
     /// @return current loan-to-value of the vault's Aave position, in bps.
     function currentLtvBps() external view returns (uint256) {
         uint256 collateral = aToken.balanceOf(address(this));

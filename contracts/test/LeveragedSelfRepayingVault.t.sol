@@ -73,6 +73,9 @@ contract MockPool is IPool {
     function getReserveData(address) external view returns (ReserveDataLegacy memory r) {
         r.aTokenAddress = address(aToken);
         r.variableDebtTokenAddress = address(debtToken);
+        // Realistic single-asset spread: supply 2% < borrow 3.5% (ray = 1e27).
+        r.currentLiquidityRate = 0.02e27;
+        r.currentVariableBorrowRate = 0.035e27;
     }
 }
 
@@ -140,6 +143,15 @@ contract LeveragedSelfRepayingVaultTest is Test {
         vault.deleverage(type(uint256).max);
         assertEq(poolMock.debtToken().balanceOf(address(vault)), 0, "debt cleared");
         assertEq(poolMock.aToken().balanceOf(address(vault)), 1 ether, "back to unlevered collateral");
+    }
+
+    /// Documents the core finding: single-asset carry is negative (supply < borrow),
+    /// so the UI must warn before looping. See FINANCIAL-REVIEW.md.
+    function test_SingleAssetCarryIsNegative() public view {
+        (uint256 supplyRate, uint256 borrowRate) = vault.currentRates();
+        assertEq(supplyRate, 0.02e27);
+        assertEq(borrowRate, 0.035e27);
+        assertLt(supplyRate, borrowRate, "single-asset loop bleeds the spread");
     }
 
     function test_SetStrategyRejectsAboveCeilings() public {

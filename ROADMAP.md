@@ -21,23 +21,24 @@ Status legend: ✅ done · 🔨 in progress · 🔜 next · 💤 later
 - 🔜 Proportional `redeemAndUnwind` so a leveraged user can exit in one tx (flash-loan-assisted unwind).
 - 💤 Fee switch (performance fee on harvested rewards).
 
-## Phase 3 — Frontend scaffold 🔜
-- 🔜 `create-next-app` (TS, Tailwind, App Router) in `web/`.
-- 🔜 wagmi + viem + RainbowKit; network = testnet; typed vault ABI from `forge build` artifacts.
-- 🔜 shadcn/ui + dark finance theme.
-- 🔜 Routing: `/` landing → `/app` dashboard → `/docs`.
+## Phase 3 — Frontend scaffold ✅
+- ✅ `create-next-app` (TS, Tailwind, App Router) in `web/` (Next 16 / React 19).
+- ✅ **Reown AppKit** (`createAppKit` + `WagmiAdapter`) + wagmi + viem + react-query; testnet networks (Sepolia, Base Sepolia); typed vault ABI extracted from `forge build` artifacts.
+- ✅ Dark finance theme. Turbopack optional-dep aliases (matched IceSwap's fix). `npm run build` green.
+- ✅ Routing: `/` landing → `/app` dashboard → `/docs`.
 
-## Phase 4 — Dashboard 🔜
-- 🔜 Connect wallet; **auto-detect existing Aave positions** via `getUserAccountData` + reserve data.
-- 🔜 Mode toggle: **Leverage** vs **Self-Repaying**.
-- 🔜 Position simulator: deposit → exposure after N cycles at chosen LTV → projected debt/equity.
-- 🔜 Live health-factor + liquidation-risk indicator; current LTV gauge.
-- 🔜 Actions wired to vault: deposit, leverage, harvest, deleverage, emergency unwind.
-- 💤 Transaction history (event indexing; Supabase optional, only if a server need appears).
+## Phase 4 — Dashboard ✅
+- ✅ Connect wallet (Reown); **auto-detect existing Aave position** via `getUserAccountData`.
+- ✅ Mode toggle: Reward-Farming Leverage vs Self-Repaying.
+- ✅ Position simulator (`lib/sim.ts`, self-checked against on-chain math): deposit → exposure/debt/equity/leverage at N cycles × LTV.
+- ✅ Live health-factor + current LTV; **net-carry warning** that flags negative-carry loops.
+- ✅ Actions wired to vault: deposit (approve+deposit), leverage, harvest, deleverage, emergency unwind.
+- 💤 Per-asset position breakdown (UiPoolDataProvider) + tx history. Supabase only if a server need appears.
 
-## Phase 5 — Landing + docs 🔜
-- 🔜 Landing: hero, the honest-economics explainer, two-mode pitch, CTA → dashboard, link → docs.
-- 🔜 Docs pages: how it works, leverage math, self-repay mechanics, risks/liquidation, contract reference, FAQ.
+## Phase 5 — Landing + docs ✅
+- ✅ Landing: hero, honest-economics explainer, two-mode pitch, CTA → dashboard, link → docs.
+- ✅ Docs: overview, leverage math, self-repay mechanics, risks/liquidation, contract reference, FAQ.
+- ✅ Foundry deploy script (`script/Deploy.s.sol`) — deploy the vault, then wire its address into the dashboard env.
 
 ## Phase 6 — v2 yield-differential mode 💤
 - 💤 Two-asset vault: supply **wstETH**, borrow **WETH**, e-mode — real positive carry.
