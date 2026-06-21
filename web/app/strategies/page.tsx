@@ -59,12 +59,33 @@ export default function Strategies() {
         <Section id="v1">
           <h2 className="text-2xl">v1 — Single-asset, self-repaying loan</h2>
           <p>
-            You deposit one asset — say ETH, BTC, or USDC — and the vault supplies it to Aave as
-            collateral. Against that collateral the vault can borrow the <em>same</em> asset and either
-            hand it back to you as usable liquidity or loop it back in. The headline idea: the supply
-            yield your collateral earns can cover the interest on the borrow, so the loan services and
-            slowly repays itself — provided you keep the loan small enough relative to the collateral.
+            You deposit one asset and the vault supplies it to Aave as collateral. Against that
+            collateral the vault borrows the <em>same</em> asset and hands it back to you as usable
+            liquidity. If you keep the loan-to-value below the break-even point, the supply interest your
+            collateral earns is larger than the borrow interest you pay — so the loan quietly services
+            and pays itself down. <strong>It is self-repaying, as long as you manage the LTV correctly
+            relative to the supply and borrow rates.</strong>
           </p>
+          <div className="space-y-3 rounded-xl border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/5 p-5">
+            <p className="text-[var(--color-ink)]">
+              <strong>Self-repaying, defined:</strong> a position self-repays whenever the interest earned
+              on the whole collateral exceeds the interest paid on the borrowed slice — i.e. while LTV
+              stays under <span className="mono-num text-[var(--color-accent)]">break-even = supply rate ÷ borrow rate</span>.
+              Manage the LTV against the live rates and you never add a cent; the yield does the repaying.
+            </p>
+            <p className="text-[var(--color-ink)]">
+              <strong>Spend without selling — and without the tax event:</strong> you unlock liquidity
+              from an asset you want to <em>keep</em>. Borrowing is not a disposal, so it doesn&apos;t
+              trigger a capital-gains sale the way cashing out would. You hold your ETH/BTC, get spendable
+              funds, and let the position pay the loan back from yield. (Not tax advice — rules vary by
+              jurisdiction.)
+            </p>
+            <p className="text-[var(--color-ink)]">
+              <strong>Works for any asset:</strong> the exact same vault logic runs on ETH, USDC, USDT,
+              WBTC, DAI and any other token Aave lists — each with its own live break-even computed from
+              that asset&apos;s own supply and borrow rates.
+            </p>
+          </div>
 
           <h3 className="pt-2 text-lg">The core insight</h3>
           <p>

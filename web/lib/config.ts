@@ -13,8 +13,37 @@ export const AAVE_POOL: Record<number, `0x${string}`> = {
 
 export type VaultVersion = "v1" | "v2";
 
-// Our vaults, once deployed. Set per chain + version in .env.local, e.g.
-// NEXT_PUBLIC_VAULT_V1_11155111 / NEXT_PUBLIC_VAULT_V2_11155111.
+// v1 is asset-agnostic — the SAME contract works for any Aave-listed asset (ETH, USDC,
+// BTC, USDT, …); you just deploy one vault per asset. This registry lists the v1 vaults
+// deployed per chain. Add a row after deploying a new-asset vault.
+export type V1Market = { symbol: string; asset: `0x${string}`; vault: `0x${string}`; decimals: number };
+
+export const V1_MARKETS: Record<number, V1Market[]> = {
+  [baseSepolia.id]: [
+    {
+      symbol: "WETH",
+      asset: "0x4200000000000000000000000000000000000006",
+      vault: "0x6D515bb8a190A2e615F21307FB0526B827fF33Cd",
+      decimals: 18,
+    },
+    {
+      symbol: "USDC",
+      asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      vault: "0x6B270706619A37C81eEd313dDCD6Dd248e4cf7F9",
+      decimals: 6,
+    },
+  ],
+};
+
+// Mainnet assets v1 supports once a vault is deployed (Aave lists all of these on L1/L2s).
+// Shown in the UI as "deploy to enable" on chains where no vault exists yet.
+export const V1_SUPPORTED_ASSETS = ["WETH", "USDC", "USDT", "WBTC", "DAI", "wstETH"];
+
+export function v1Markets(chainId: number): V1Market[] {
+  return V1_MARKETS[chainId] || [];
+}
+
+// v2 (wstETH/WETH) — single market per chain, from env after deploy.
 export function vaultAddress(chainId: number, version: VaultVersion = "v1"): `0x${string}` {
   const key = `NEXT_PUBLIC_VAULT_${version.toUpperCase()}_${chainId}` as keyof typeof process.env;
   return (process.env[key] as `0x${string}`) || ZERO;

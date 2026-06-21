@@ -7,7 +7,7 @@ import { Nav } from "@/components/Nav";
 import { vaultAbi } from "@/lib/vaultAbi";
 import { yieldVaultAbi } from "@/lib/yieldVaultAbi";
 import { aavePoolAbi } from "@/lib/aaveAbi";
-import { aavePool, vaultAddress, ZERO, explorerBase, aaveMarketUrl, type VaultVersion } from "@/lib/config";
+import { aavePool, vaultAddress, ZERO, explorerBase, aaveMarketUrl, v1Markets, type VaultVersion } from "@/lib/config";
 import { simulate, RISK_PRESETS, netCarryPctAtLtv, type RiskPreset } from "@/lib/sim";
 import { fmtUsd, fmtHealth, rayToPct, fmtPct } from "@/lib/format";
 
@@ -15,9 +15,14 @@ export default function Dashboard() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const [version, setVersion] = useState<VaultVersion>("v1");
+  const [assetIdx, setAssetIdx] = useState(0);
 
   const pool = aavePool(chainId);
-  const vault = vaultAddress(chainId, version);
+  const markets = v1Markets(chainId);
+  const v1Market = markets[assetIdx] ?? markets[0];
+  // v1: pick the per-asset vault; v2: the single wstETH/WETH market.
+  const vault = version === "v1" ? (v1Market?.vault ?? ZERO) : vaultAddress(chainId, "v2");
+  const decimals = version === "v1" ? (v1Market?.decimals ?? 18) : 18;
   const vaultLive = vault !== ZERO;
   const abi = version === "v1" ? vaultAbi : yieldVaultAbi;
 
@@ -86,11 +91,36 @@ export default function Dashboard() {
           <div>
             <h1 className="text-[var(--text-display-s)]">Dashboard</h1>
             <p className="mt-1 text-sm text-[var(--color-ink-3)]">
-              Vault {version} · {version === "v1" ? "Reward-Farming Leverage" : "Yield-Differential"}
+              {version === "v1"
+                ? `Self-repaying loan · ${v1Market?.symbol ?? "—"}`
+                : "Yield-Differential · wstETH / WETH"}
             </p>
           </div>
           <VersionToggle version={version} setVersion={setVersion} />
         </div>
+
+        {/* v1 asset selector — the same vault logic works for any Aave-listed asset */}
+        {version === "v1" && markets.length > 0 && (
+          <div className="mt-5 flex flex-wrap items-center gap-2">
+            <span className="text-sm text-[var(--color-ink-3)]">Asset:</span>
+            {markets.map((m, i) => (
+              <button
+                key={m.symbol}
+                onClick={() => setAssetIdx(i)}
+                className={`rounded-full border px-4 py-1.5 text-sm transition-colors duration-[var(--dur-fast)] ${
+                  i === assetIdx
+                    ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]"
+                    : "border-[var(--color-line)] text-[var(--color-ink-2)] hover:border-[var(--color-ink-3)]"
+                }`}
+              >
+                {m.symbol}
+              </button>
+            ))}
+            <span className="text-xs text-[var(--color-ink-3)]">
+              + any Aave asset (USDT, WBTC, DAI…) once a vault is deployed for it
+            </span>
+          </div>
+        )}
 
         {/* Workbench: position rail + strategy/actions */}
         <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_1.4fr]">
@@ -114,7 +144,10 @@ export default function Dashboard() {
               </Muted>
             ) : (
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                <Stat label="Net equity" value={`${Number((vaultReads.data?.[0]?.result as bigint) ?? 0n) / 1e18}`} />
+                <Stat
+                  label={`Net equity (${version === "v1" ? v1Market?.symbol ?? "" : "wstETH"})`}
+                  value={(Number((vaultReads.data?.[0]?.result as bigint) ?? 0n) / 10 ** decimals).toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                />
                 <Stat label="Health" value={fmtHealth((vaultReads.data?.[1]?.result as bigint) ?? 0n)} />
                 <Stat label="Target LTV" value={fmtPct(Number((vaultReads.data?.[3]?.result as bigint) ?? 0n) / 100)} />
                 <Stat
@@ -133,6 +166,7 @@ export default function Dashboard() {
           vaultLive={vaultLive}
           abi={abi}
           assetAddr={vaultReads.data?.[4]?.result as `0x${string}` | undefined}
+          decimals={decimals}
           maxCycles={Number((vaultReads.data?.[2]?.result as bigint) ?? 4n)}
           targetLtvBps={Number((vaultReads.data?.[3]?.result as bigint) ?? 7000n)}
           breakEvenBps={signal.breakEvenBps}
@@ -218,6 +252,7 @@ function StrategyPanel({
   vaultLive,
   abi,
   assetAddr,
+  decimals,
   maxCycles,
   targetLtvBps,
   breakEvenBps,
@@ -230,6 +265,7 @@ function StrategyPanel({
   vaultLive: boolean;
   abi: typeof vaultAbi | typeof yieldVaultAbi;
   assetAddr?: `0x${string}`;
+  decimals: number;
   maxCycles: number;
   targetLtvBps: number;
   breakEvenBps?: number;
@@ -255,7 +291,7 @@ function StrategyPanel({
 
   const doDeposit = () => {
     if (!assetAddr || !address) return;
-    const wad = parseUnits(deposit || "0", 18);
+    const wad = parseUnits(deposit || "0", decimals);
     writeContract({ address: assetAddr, abi: erc20Abi, functionName: "approve", args: [vault, wad] });
     w("deposit", [wad, address]);
   };
