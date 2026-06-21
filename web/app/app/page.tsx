@@ -58,6 +58,23 @@ export default function Dashboard() {
     query: { enabled: vaultLive },
   });
 
+  // The viewed address's stake IN the vault (its shares × share price). This is the position
+  // a user actually holds through OpenCompound — distinct from any direct Aave position.
+  const userVault = useReadContracts({
+    contracts:
+      vaultLive && viewAddress
+        ? [
+            { address: vault, abi, functionName: "balanceOf", args: [viewAddress] },
+            { address: vault, abi, functionName: "totalSupply" },
+          ]
+        : [],
+    query: { enabled: vaultLive && !!viewAddress },
+  });
+  const userShares = (userVault.data?.[0]?.result as bigint) ?? 0n;
+  const totalSupplyBn = (userVault.data?.[1]?.result as bigint) ?? 0n;
+  const totalAssetsBn = (vaultReads.data?.[0]?.result as bigint) ?? 0n;
+  const userAssets = totalSupplyBn > 0n ? (totalAssetsBn * userShares) / totalSupplyBn : 0n;
+
   // Live carry signal — break-even, recommended LTV, and the effective supply/borrow APRs.
   // For v2 the effective supply adds the configured staking yield (mirrors the contract).
   const signal = useMemo(() => {
@@ -206,8 +223,13 @@ export default function Dashboard() {
             ) : (
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 <Stat
-                  label={`Net equity (${version === "v1" ? v1Market?.symbol ?? "" : "wstETH"})`}
-                  value={(Number((vaultReads.data?.[0]?.result as bigint) ?? 0n) / 10 ** decimals).toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                  label={`Your position (${version === "v1" ? v1Market?.symbol ?? "" : "wstETH"})`}
+                  value={(Number(userAssets) / 10 ** decimals).toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                  tone="good"
+                />
+                <Stat
+                  label="Vault total equity"
+                  value={(Number(totalAssetsBn) / 10 ** decimals).toLocaleString(undefined, { maximumFractionDigits: 6 })}
                 />
                 <Stat label="Health" value={fmtHealth((vaultReads.data?.[1]?.result as bigint) ?? 0n)} />
                 <Stat label="Target LTV" value={fmtPct(Number((vaultReads.data?.[3]?.result as bigint) ?? 0n) / 100)} />

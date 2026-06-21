@@ -4,7 +4,7 @@ import { createAppKit } from "@reown/appkit/react";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { sepolia, baseSepolia, type AppKitNetwork } from "@reown/appkit/networks";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WagmiProvider, cookieStorage, cookieToInitialState, createStorage, type Config } from "wagmi";
+import { WagmiProvider, cookieStorage, cookieToInitialState, createStorage, http, type Config } from "wagmi";
 
 // projectId is PUBLIC (ships in every dApp bundle, domain-restricted in the Reown dashboard).
 const projectId =
@@ -12,14 +12,29 @@ const projectId =
 
 const networks: [AppKitNetwork, ...AppKitNetwork[]] = [sepolia, baseSepolia];
 
-// SSR-correct setup (per Reown's Next.js guide): cookie storage + ssr:true so the wallet
-// connection state is available on the server, matching the client and killing hydration
-// mismatches + the connect/loading flash.
+// Use our OWN RPC endpoints, not Reown's Blockchain API. The default routes chain reads
+// (balances, contract calls) through Reown's API keyed by projectId — which returns HTTP 400
+// when the project isn't provisioned for that chain, leaving the wallet button stuck loading.
+// Pointing transports + customRpcUrls at a real RPC fixes the 400s and the spinner.
+const BASE_SEPOLIA_RPC =
+  process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC ||
+  "https://base-sepolia.g.alchemy.com/v2/AJiObGP0fK8EArUzVjOoN";
+const SEPOLIA_RPC =
+  process.env.NEXT_PUBLIC_SEPOLIA_RPC || "https://ethereum-sepolia-rpc.publicnode.com";
+
 const wagmiAdapter = new WagmiAdapter({
   networks,
   projectId,
   ssr: true,
   storage: createStorage({ storage: cookieStorage }),
+  transports: {
+    [baseSepolia.id]: http(BASE_SEPOLIA_RPC),
+    [sepolia.id]: http(SEPOLIA_RPC),
+  },
+  customRpcUrls: {
+    "eip155:84532": [{ url: BASE_SEPOLIA_RPC }],
+    "eip155:11155111": [{ url: SEPOLIA_RPC }],
+  },
 });
 
 createAppKit({
