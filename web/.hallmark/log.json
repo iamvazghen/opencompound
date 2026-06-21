@@ -1,0 +1,11 @@
+[
+  {
+    "date": "2026-06-21",
+    "macrostructure": "multi (Stat-Led / Long-Document / Workbench / doc-shell)",
+    "theme": "custom",
+    "theme_axes": "dark / classical-serif / warm",
+    "vibe": "on-chain, technical, finance-luxe, late-night",
+    "enrichment": "none (typography + atmospheric blooms)",
+    "brief": "OpenCompound — leveraged + self-repaying Aave V3 vaults; full frontend remake"
+  }
+]

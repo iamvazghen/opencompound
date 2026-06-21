@@ -7,17 +7,17 @@ import { Nav } from "@/components/Nav";
 
 function Code({ children }: { children: React.ReactNode }) {
   return (
-    <pre className="overflow-x-auto rounded-lg border border-neutral-800 bg-neutral-900 p-4 text-sm leading-relaxed text-emerald-300">
+    <pre className="mono-num overflow-x-auto rounded-xl border border-[var(--color-line)] bg-[var(--color-paper-2)] p-4 text-sm leading-relaxed text-[var(--color-accent)]">
       {children}
     </pre>
   );
 }
 function Fn({ children }: { children: React.ReactNode }) {
-  return <code className="rounded bg-neutral-800 px-1.5 py-0.5 text-emerald-300">{children}</code>;
+  return <code className="rounded bg-[var(--color-paper-3)] px-1.5 py-0.5 text-[var(--color-accent)]">{children}</code>;
 }
 function Section({ id, children }: { id: string; children: React.ReactNode }) {
   return (
-    <section id={id} className="scroll-mt-20 space-y-4 border-t border-neutral-800 pt-10">
+    <section id={id} className="scroll-mt-24 space-y-4 border-t border-[var(--color-line)] pt-10">
       {children}
     </section>
   );
@@ -27,18 +27,22 @@ export default function Strategies() {
   return (
     <>
       <Nav />
-      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-12 text-neutral-300">
-        <h1 className="text-4xl font-bold text-white">Strategies &amp; implementation</h1>
-        <p className="mt-4 text-lg text-neutral-400">
+      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-14 text-[var(--color-ink-2)] [&_h2]:text-[var(--color-ink)] [&_h3]:text-[var(--color-ink)] [&_strong]:text-[var(--color-ink)]">
+        <h1 className="text-[var(--text-display-s)] text-[var(--color-ink)]">Strategies &amp; implementation</h1>
+        <p className="mt-4 text-lg">
           Two vaults, two economic models. Everything below maps to the actual Solidity in{" "}
-          <code className="text-neutral-200">contracts/src/</code> — function names, constants, and
-          numbers are taken straight from the code and the passing test suite.
+          <code className="text-[var(--color-ink)]">contracts/src/</code> — function names, constants,
+          and numbers are taken straight from the code and the passing test suite.
         </p>
-        <nav className="mt-6 flex flex-wrap gap-x-6 gap-y-1 text-sm text-emerald-400">
-          <a href="#v1">v1 · Reward-Farming Leverage</a>
-          <a href="#v2">v2 · Yield-Differential</a>
-          <a href="#flash">Flash-loan leverage</a>
-          <a href="#honest">The honest economics</a>
+        <nav className="mt-6 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+          {[
+            ["#v1", "v1 · Reward-Farming Leverage"],
+            ["#v2", "v2 · Yield-Differential"],
+            ["#flash", "Flash-loan leverage"],
+            ["#honest", "The honest economics"],
+          ].map(([href, label]) => (
+            <a key={href} href={href} className="ulink">{label}</a>
+          ))}
         </nav>
 
         {/* ───────────── v1 ───────────── */}
@@ -70,7 +74,7 @@ export default function Strategies() {
           <Code>{`supplied = 1 + 0.7 + 0.49 + 0.343 + 0.2401 = 2.7731   (gross exposure 2.77x)
 debt     =     0.7 + 0.49 + 0.343 + 0.2401 = 1.7731
 equity   = supplied - debt = 1.0                     (leverage never changes equity)`}</Code>
-          <p className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-300">
+          <p className="rounded border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)]">
             ⚠ For a same-asset loop this 2.77× is <strong>not</strong> price exposure — collateral and
             debt are the same token and cancel, so net directional exposure stays at your equity
             (1.0). And the carry is negative. That&apos;s why the contract exposes{" "}
@@ -161,13 +165,13 @@ function currentRates() external view returns (uint256 supplyRateRay, uint256 bo
 // executeOperation(): supply flashed collateral -> borrow -> swap WETH->wstETH
 //                     -> re-supply excess -> repay flash (gated to pool + self)`}</Code>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-lg border border-neutral-800 bg-neutral-900/50 p-4">
+            <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-paper-2)] p-4">
               <p className="text-xs text-neutral-500">Iterative loop (4 cycles)</p>
               <p className="text-lg font-medium">~70% LTV · ~701k gas · 4 swaps</p>
             </div>
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
+            <div className="rounded-lg border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/5 p-4">
               <p className="text-xs text-neutral-500">leverageFlash()</p>
-              <p className="text-lg font-medium text-emerald-300">~80% LTV · ~501k gas · 1 swap</p>
+              <p className="text-lg font-medium text-[var(--color-accent)]">~80% LTV · ~501k gas · 1 swap</p>
             </div>
           </div>
           <p className="text-xs text-neutral-500">
@@ -184,15 +188,15 @@ function currentRates() external view returns (uint256 supplyRateRay, uint256 bo
             <li><strong>Self-repaying = passive equity growth</strong>, not a magic debt eraser. Appreciation is your equity.</li>
           </ul>
           <p className="pt-2">
-            Full analysis in <Link href="/docs/self-repay" className="text-emerald-400">Docs → Self-repay</Link>{" "}
+            Full analysis in <Link href="/docs/self-repay" className="text-[var(--color-accent)]">Docs → Self-repay</Link>{" "}
             and the repo&apos;s <code className="text-neutral-200">FINANCIAL-REVIEW.md</code> /{" "}
             <code className="text-neutral-200">REFINEMENTS.md</code>.
           </p>
           <div className="flex gap-4 pt-2">
-            <Link href="/app" className="rounded bg-emerald-500 px-5 py-2.5 font-medium text-neutral-950 hover:bg-emerald-400">
+            <Link href="/app" className="rounded bg-[var(--color-accent)] px-5 py-2.5 font-medium text-[var(--color-paper)] hover:bg-[var(--color-accent-2)]">
               Open the dashboard
             </Link>
-            <Link href="/docs" className="rounded border border-neutral-700 px-5 py-2.5 font-medium hover:border-neutral-500">
+            <Link href="/docs" className="rounded border border-[var(--color-line)] px-5 py-2.5 font-medium hover:border-[var(--color-ink-3)]">
               Read the docs
             </Link>
           </div>

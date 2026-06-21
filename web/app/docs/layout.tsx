@@ -16,16 +16,21 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
       <Nav />
       <div className="mx-auto flex w-full max-w-5xl flex-1 gap-10 px-6 py-10">
         <aside className="hidden w-48 shrink-0 sm:block">
-          <nav className="sticky top-10 space-y-1 text-sm">
+          <nav className="sticky top-24 space-y-1 text-sm">
             {pages.map(([href, label]) => (
-              <Link key={href} href={href}
-                className="block rounded px-3 py-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-white">
+              <Link
+                key={href}
+                href={href}
+                className="block rounded-lg px-3 py-1.5 text-[var(--color-ink-3)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)]"
+              >
                 {label}
               </Link>
             ))}
           </nav>
         </aside>
-        <article className="prose-docs min-w-0 flex-1 space-y-4 text-neutral-300">{children}</article>
+        <article className="min-w-0 flex-1 space-y-4 text-[var(--color-ink-2)] [&_h1]:text-[var(--color-ink)] [&_h2]:text-[var(--color-ink)] [&_code]:text-[var(--color-accent)]">
+          {children}
+        </article>
       </div>
     </>
   );

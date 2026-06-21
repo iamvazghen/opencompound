@@ -1,26 +1,110 @@
+/* Hallmark · macrostructure: multi (Stat-Led/Long-Document/Workbench/doc-shell) · genre: atmospheric
+ * theme: custom — vibe: "on-chain, technical, finance-luxe, late-night"
+ * paper oklch(15% 0.02 264) · accent oklch(82% 0.13 80) electrum-gold (warm)
+ * display Instrument Serif (roman) + Geist body + Geist Mono data
+ * pre-emit critique: P5 H4 E5 S5 R4 V4
+ */
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  /* paper — dark ink-navy stack */
+  --color-paper: oklch(15% 0.02 264);
+  --color-paper-2: oklch(19% 0.024 264);
+  --color-paper-3: oklch(24% 0.028 264);
+  --color-line: oklch(34% 0.02 264 / 0.55);
+  --color-line-2: oklch(40% 0.02 264 / 0.32);
+
+  /* ink — text */
+  --color-ink: oklch(95% 0.008 264);
+  --color-ink-2: oklch(74% 0.014 264);
+  --color-ink-3: oklch(58% 0.018 264);
+
+  /* brand accent — electrum gold */
+  --color-accent: oklch(82% 0.13 80);
+  --color-accent-2: oklch(72% 0.12 70);
+
+  /* semantic state colors */
+  --color-positive: oklch(80% 0.15 152);
+  --color-warning: oklch(77% 0.16 58);
+  --color-danger: oklch(66% 0.2 25);
+
+  /* type */
+  --font-display: var(--font-instrument), Georgia, serif;
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --text-display: clamp(2.75rem, 6vw, 5rem);
+  --text-display-s: clamp(2rem, 4.5vw, 3.25rem);
+
+  /* motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 140ms;
+  --dur-mid: 280ms;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  overflow-x: clip;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  /* atmospheric: two soft chromatic blooms fixed behind everything + faint grain */
+  background-image:
+    radial-gradient(60rem 40rem at 80% -10%, oklch(82% 0.13 80 / 0.08), transparent 60%),
+    radial-gradient(50rem 40rem at 0% 10%, oklch(60% 0.12 264 / 0.1), transparent 55%);
+  background-attachment: fixed;
 }
+
+/* display type is always roman (Hallmark gate 38a) */
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-style: normal;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+::selection {
+  background: oklch(82% 0.13 80 / 0.25);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── reusable atoms (token-referenced) ── */
+.surface {
+  background: color-mix(in oklch, var(--color-paper-2) 88%, transparent);
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  backdrop-filter: blur(8px);
+}
+.hairline { border-color: var(--color-line); }
+.mono-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.glow-accent { box-shadow: 0 0 0 1px var(--color-line), 0 24px 60px -32px oklch(82% 0.13 80 / 0.35); }
+
+/* link reveal underline used on inline doc links */
+.ulink {
+  color: var(--color-accent);
+  text-decoration: none;
+  background-image: linear-gradient(var(--color-accent), var(--color-accent));
+  background-size: 0% 1px;
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  transition: background-size var(--dur-fast) var(--ease-out);
+}
+.ulink:hover { background-size: 100% 1px; }

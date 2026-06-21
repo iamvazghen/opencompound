@@ -1,0 +1,41 @@
+/* Hallmark · portable design tokens for OpenCompound
+ * genre: atmospheric · theme: custom (on-chain, technical, finance-luxe, late-night)
+ * Consumed by app/globals.css via Tailwind @theme; copy into any project to carry the system.
+ */
+:root {
+  /* paper — dark ink-navy stack */
+  --color-paper: oklch(15% 0.02 264);
+  --color-paper-2: oklch(19% 0.024 264);
+  --color-paper-3: oklch(24% 0.028 264);
+  --color-line: oklch(34% 0.02 264 / 0.55);
+  --color-line-2: oklch(40% 0.02 264 / 0.32);
+
+  /* ink — text */
+  --color-ink: oklch(95% 0.008 264);
+  --color-ink-2: oklch(74% 0.014 264);
+  --color-ink-3: oklch(58% 0.018 264);
+
+  /* brand accent — electrum gold */
+  --color-accent: oklch(82% 0.13 80);
+  --color-accent-2: oklch(72% 0.12 70);
+
+  /* semantic state colors */
+  --color-positive: oklch(80% 0.15 152);
+  --color-warning: oklch(77% 0.16 58);
+  --color-danger: oklch(66% 0.2 25);
+
+  /* type roles */
+  --font-display: "Instrument Serif", Georgia, serif;
+  --font-sans: "Geist", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --text-display: clamp(2.75rem, 6vw, 5rem);
+  --text-display-s: clamp(2rem, 4.5vw, 3.25rem);
+
+  /* motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 140ms;
+  --dur-mid: 280ms;
+
+  --radius: 14px;
+}

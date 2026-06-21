@@ -5,19 +5,23 @@ import { useAccount, useChainId, useReadContract, useReadContracts, useWriteCont
 import { erc20Abi, parseUnits } from "viem";
 import { Nav } from "@/components/Nav";
 import { vaultAbi } from "@/lib/vaultAbi";
+import { yieldVaultAbi } from "@/lib/yieldVaultAbi";
 import { aavePoolAbi } from "@/lib/aaveAbi";
-import { aavePool, vaultAddress, ZERO } from "@/lib/config";
-import { simulate } from "@/lib/sim";
+import { aavePool, vaultAddress, ZERO, type VaultVersion } from "@/lib/config";
+import { simulate, RISK_PRESETS, type RiskPreset } from "@/lib/sim";
 import { fmtUsd, fmtHealth, rayToPct, fmtPct } from "@/lib/format";
 
 export default function Dashboard() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
-  const pool = aavePool(chainId);
-  const vault = vaultAddress(chainId);
-  const vaultLive = vault !== ZERO;
+  const [version, setVersion] = useState<VaultVersion>("v1");
 
-  // ── Auto-detect the wallet's existing Aave position ──
+  const pool = aavePool(chainId);
+  const vault = vaultAddress(chainId, version);
+  const vaultLive = vault !== ZERO;
+  const abi = version === "v1" ? vaultAbi : yieldVaultAbi;
+
+  // Auto-detect the connected wallet's existing Aave position.
   const aave = useReadContract({
     address: pool === ZERO ? undefined : pool,
     abi: aavePoolAbi,
@@ -26,37 +30,42 @@ export default function Dashboard() {
     query: { enabled: isConnected && pool !== ZERO },
   });
 
-  // ── Vault reads (only when deployed on this chain) ──
+  // Vault reads (shared + version-specific rate signal).
   const vaultReads = useReadContracts({
     contracts: vaultLive
       ? ([
-          { address: vault, abi: vaultAbi, functionName: "totalAssets" },
-          { address: vault, abi: vaultAbi, functionName: "healthFactor" },
-          { address: vault, abi: vaultAbi, functionName: "currentLtvBps" },
-          { address: vault, abi: vaultAbi, functionName: "currentRates" },
-          { address: vault, abi: vaultAbi, functionName: "maxCycles" },
-          { address: vault, abi: vaultAbi, functionName: "targetLtvBps" },
-          { address: vault, abi: vaultAbi, functionName: "asset" },
+          { address: vault, abi, functionName: "totalAssets" },
+          { address: vault, abi, functionName: "healthFactor" },
+          { address: vault, abi, functionName: "maxCycles" },
+          { address: vault, abi, functionName: "targetLtvBps" },
+          { address: vault, abi, functionName: "asset" },
+          version === "v1"
+            ? { address: vault, abi: vaultAbi, functionName: "currentRates" }
+            : { address: vault, abi: yieldVaultAbi, functionName: "aaveRateSpread" },
         ] as const)
       : [],
     query: { enabled: vaultLive },
   });
 
-  const rates = vaultReads.data?.[3]?.result as readonly [bigint, bigint] | undefined;
-  const supplyPct = rates ? rayToPct(rates[0]) : undefined;
-  const borrowPct = rates ? rayToPct(rates[1]) : undefined;
-  const netCarry = supplyPct !== undefined && borrowPct !== undefined ? supplyPct - borrowPct : undefined;
+  const netCarry = useMemo(() => {
+    const r = vaultReads.data?.[5]?.result;
+    if (r === undefined) return undefined;
+    if (version === "v1") {
+      const [s, b] = r as readonly [bigint, bigint];
+      return rayToPct(s) - rayToPct(b);
+    }
+    return rayToPct(BigInt(r as bigint)); // signed ray spread → percent
+  }, [vaultReads.data, version]);
 
   if (!isConnected) {
     return (
       <>
         <Nav connect />
-        <main className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-          <h1 className="text-2xl font-semibold">Connect your wallet</h1>
-          <p className="max-w-md text-sm text-neutral-400">
-            We&apos;ll auto-detect any Aave V3 position you already have on this network.
+        <main className="flex flex-1 flex-col items-center justify-center gap-5 px-6 text-center">
+          <h1 className="text-[var(--text-display-s)]">Connect your wallet</h1>
+          <p className="max-w-md text-[var(--color-ink-2)]">
+            We&apos;ll auto-detect any Aave V3 position you already hold on this network.
           </p>
-          {/* Reown AppKit connect modal */}
           <appkit-button />
         </main>
       </>
@@ -67,209 +76,249 @@ export default function Dashboard() {
     <>
       <Nav connect />
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-[var(--text-display-s)]">Dashboard</h1>
+            <p className="mt-1 text-sm text-[var(--color-ink-3)]">
+              Vault {version} · {version === "v1" ? "Reward-Farming Leverage" : "Yield-Differential"}
+            </p>
+          </div>
+          <VersionToggle version={version} setVersion={setVersion} />
+        </div>
 
-        {/* Existing Aave position (auto-detected) */}
-        <Section title="Your existing Aave position">
-          {pool === ZERO ? (
-            <Note>Aave V3 isn&apos;t configured for this network — switch to Sepolia or Base Sepolia.</Note>
-          ) : aave.isLoading ? (
-            <Note>Reading on-chain…</Note>
-          ) : aave.data ? (
-            <PositionGrid data={aave.data as readonly bigint[]} />
-          ) : (
-            <Note>No position found.</Note>
-          )}
-        </Section>
+        {/* Workbench: position rail + strategy/actions */}
+        <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_1.4fr]">
+          <Panel title="Your Aave position">
+            {pool === ZERO ? (
+              <Muted>Switch to Sepolia or Base Sepolia.</Muted>
+            ) : aave.isLoading ? (
+              <Muted>Reading on-chain…</Muted>
+            ) : aave.data ? (
+              <PositionGrid data={aave.data as readonly bigint[]} />
+            ) : (
+              <Muted>No position found.</Muted>
+            )}
+          </Panel>
 
-        <ModeAndSimulator
-          maxCycles={Number(vaultReads.data?.[4]?.result ?? 4n)}
-          targetLtvBps={Number(vaultReads.data?.[5]?.result ?? 7000n)}
+          <Panel title="Vault status">
+            {!vaultLive ? (
+              <Muted>
+                Vault {version} not deployed on this network. After deploying, set{" "}
+                <code className="text-[var(--color-accent)]">NEXT_PUBLIC_VAULT_{version.toUpperCase()}_{chainId}</code>.
+              </Muted>
+            ) : (
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <Stat label="Net equity" value={`${Number((vaultReads.data?.[0]?.result as bigint) ?? 0n) / 1e18}`} />
+                <Stat label="Health" value={fmtHealth((vaultReads.data?.[1]?.result as bigint) ?? 0n)} />
+                <Stat label="Target LTV" value={fmtPct(Number((vaultReads.data?.[3]?.result as bigint) ?? 0n) / 100)} />
+                <Stat
+                  label="Net carry"
+                  value={netCarry !== undefined ? fmtPct(netCarry) : "—"}
+                  tone={netCarry !== undefined ? (netCarry < 0 ? "warn" : "good") : undefined}
+                />
+              </div>
+            )}
+          </Panel>
+        </div>
+
+        <StrategyPanel
+          version={version}
+          vault={vault}
+          vaultLive={vaultLive}
+          abi={abi}
+          assetAddr={vaultReads.data?.[4]?.result as `0x${string}` | undefined}
+          maxCycles={Number((vaultReads.data?.[2]?.result as bigint) ?? 4n)}
+          targetLtvBps={Number((vaultReads.data?.[3]?.result as bigint) ?? 7000n)}
           netCarry={netCarry}
-          supplyPct={supplyPct}
-          borrowPct={borrowPct}
         />
-
-        {/* Vault actions */}
-        <Section title="Vault">
-          {!vaultLive ? (
-            <Note>
-              Vault not deployed on this network yet. After deploying, set{" "}
-              <code className="text-emerald-400">NEXT_PUBLIC_VAULT_ADDRESS_{chainId}</code> in{" "}
-              <code>.env.local</code>.
-            </Note>
-          ) : (
-            <VaultActions vault={vault} assetAddr={vaultReads.data?.[6]?.result as `0x${string}` | undefined} />
-          )}
-          {vaultLive && vaultReads.data && (
-            <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Stat label="Net equity" value={`${Number((vaultReads.data[0]?.result as bigint) ?? 0n) / 1e18}`} />
-              <Stat label="Health factor" value={fmtHealth((vaultReads.data[1]?.result as bigint) ?? 0n)} />
-              <Stat label="Current LTV" value={fmtPct(Number((vaultReads.data[2]?.result as bigint) ?? 0n) / 100)} />
-              <Stat label="Net carry" value={netCarry !== undefined ? fmtPct(netCarry) : "—"} />
-            </div>
-          )}
-        </Section>
       </main>
     </>
+  );
+}
+
+function VersionToggle({ version, setVersion }: { version: VaultVersion; setVersion: (v: VaultVersion) => void }) {
+  return (
+    <div className="inline-flex rounded-full border border-[var(--color-line)] p-1 text-sm">
+      {(["v1", "v2"] as const).map((v) => (
+        <button
+          key={v}
+          onClick={() => setVersion(v)}
+          className={`rounded-full px-4 py-1.5 transition-colors duration-[var(--dur-fast)] ${
+            version === v ? "bg-[var(--color-accent)] text-[var(--color-paper)]" : "text-[var(--color-ink-2)]"
+          }`}
+        >
+          {v === "v1" ? "v1 · Single-asset" : "v2 · Yield-diff"}
+        </button>
+      ))}
+    </div>
   );
 }
 
 function PositionGrid({ data }: { data: readonly bigint[] }) {
   const [collateral, debt, , , , hf] = data;
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+    <div className="grid grid-cols-2 gap-4">
       <Stat label="Collateral" value={fmtUsd(collateral)} />
       <Stat label="Debt" value={fmtUsd(debt)} />
-      <Stat label="Health factor" value={fmtHealth(hf)} highlight={hf < 11n * 10n ** 17n} />
+      <Stat label="Health factor" value={fmtHealth(hf)} tone={hf < 11n * 10n ** 17n ? "warn" : undefined} />
     </div>
   );
 }
 
-function ModeAndSimulator({
+function StrategyPanel({
+  version,
+  vault,
+  vaultLive,
+  abi,
+  assetAddr,
   maxCycles,
   targetLtvBps,
   netCarry,
-  supplyPct,
-  borrowPct,
 }: {
+  version: VaultVersion;
+  vault: `0x${string}`;
+  vaultLive: boolean;
+  abi: typeof vaultAbi | typeof yieldVaultAbi;
+  assetAddr?: `0x${string}`;
   maxCycles: number;
   targetLtvBps: number;
   netCarry?: number;
-  supplyPct?: number;
-  borrowPct?: number;
 }) {
-  const [mode, setMode] = useState<"leverage" | "selfRepay">("leverage");
-  const [deposit, setDeposit] = useState(1);
-  const [cycles, setCycles] = useState(Math.min(4, maxCycles));
-  const [ltv, setLtv] = useState(targetLtvBps);
-  const sim = useMemo(() => simulate(deposit, cycles, ltv), [deposit, cycles, ltv]);
+  const { address } = useAccount();
+  const { writeContract, isPending } = useWriteContract();
+  const [preset, setPreset] = useState<RiskPreset>(RISK_PRESETS[1]);
+  const [deposit, setDeposit] = useState("1");
 
-  const carryLoses = netCarry !== undefined && netCarry < 0;
+  const sim = useMemo(() => simulate(Number(deposit) || 0, preset.cycles, preset.ltvBps), [deposit, preset]);
+  const carryLoses = version === "v1" && netCarry !== undefined && netCarry < 0;
+
+  const w = (functionName: string, args?: readonly unknown[]) =>
+    writeContract({ address: vault, abi: abi as never, functionName: functionName as never, args: args as never });
+
+  const doDeposit = () => {
+    if (!assetAddr || !address) return;
+    const wad = parseUnits(deposit || "0", 18);
+    writeContract({ address: assetAddr, abi: erc20Abi, functionName: "approve", args: [vault, wad] });
+    w("deposit", [wad, address]);
+  };
+  const applyPreset = () =>
+    version === "v1"
+      ? w("setStrategy", [BigInt(preset.ltvBps), BigInt(preset.cycles)])
+      : w("setStrategy", [BigInt(preset.ltvBps), BigInt(preset.cycles), BigInt(preset.slippageBps)]);
 
   return (
-    <Section title="Strategy">
-      <div className="mb-4 inline-flex rounded-lg border border-neutral-800 p-1 text-sm">
-        {(["leverage", "selfRepay"] as const).map((m) => (
+    <section className="surface mt-6 rounded-2xl p-6">
+      <h2 className="text-lg">Strategy</h2>
+
+      {/* Risk presets */}
+      <div className="mt-4 flex flex-wrap gap-2">
+        {RISK_PRESETS.map((p) => (
           <button
-            key={m}
-            onClick={() => setMode(m)}
-            className={`rounded px-4 py-1.5 ${mode === m ? "bg-emerald-500 text-neutral-950" : "text-neutral-400"}`}
+            key={p.key}
+            onClick={() => setPreset(p)}
+            className={`rounded-full border px-4 py-1.5 text-sm transition-colors duration-[var(--dur-fast)] ${
+              preset.key === p.key
+                ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]"
+                : "border-[var(--color-line)] text-[var(--color-ink-2)] hover:border-[var(--color-ink-3)]"
+            }`}
           >
-            {m === "leverage" ? "Reward-Farming Leverage" : "Self-Repaying"}
+            {p.label}
+            <span className="mono-num ml-2 text-xs text-[var(--color-ink-3)]">
+              {p.ltvBps / 100}% · {p.cycles}c
+            </span>
           </button>
         ))}
       </div>
 
-      {carryLoses && mode === "leverage" && (
-        <div className="mb-4 rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-300">
-          ⚠ Net carry is {fmtPct(netCarry!)} (supply {supplyPct?.toFixed(2)}% − borrow{" "}
-          {borrowPct?.toFixed(2)}%). Same-asset looping <strong>loses</strong> the spread every block
-          and gives zero net price exposure. Only loop if reward incentives exceed this. See Docs →
-          Self-repay mechanics.
-        </div>
+      {carryLoses && (
+        <p className="mt-4 rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)]">
+          ⚠ Net carry is {fmtPct(netCarry!)}. Same-asset looping loses the spread every block and gives
+          zero net price exposure — only loop if reward incentives exceed it.
+        </p>
       )}
 
-      <div className="grid gap-6 md:grid-cols-2">
+      {/* Simulator */}
+      <div className="mt-6 grid gap-6 md:grid-cols-[1fr_1fr]">
         <div className="space-y-4">
-          <Field label={`Deposit: ${deposit}`}>
-            <input type="range" min={0.1} max={10} step={0.1} value={deposit}
-              onChange={(e) => setDeposit(+e.target.value)} className="w-full" />
-          </Field>
-          <Field label={`Cycles: ${cycles} (max ${maxCycles})`}>
-            <input type="range" min={0} max={maxCycles} step={1} value={cycles}
-              onChange={(e) => setCycles(+e.target.value)} className="w-full" />
-          </Field>
-          <Field label={`Target LTV: ${(ltv / 100).toFixed(0)}%`}>
-            <input type="range" min={1000} max={9000} step={500} value={ltv}
-              onChange={(e) => setLtv(+e.target.value)} className="w-full" />
-          </Field>
+          <label className="block text-sm">
+            <span className="mb-1 block text-[var(--color-ink-2)]">Deposit amount</span>
+            <input
+              value={deposit}
+              onChange={(e) => setDeposit(e.target.value)}
+              inputMode="decimal"
+              className="mono-num w-full rounded-lg border border-[var(--color-line)] bg-[var(--color-paper)] px-3 py-2 text-[var(--color-ink)]"
+            />
+          </label>
+          <p className="text-xs text-[var(--color-ink-3)]">
+            Preview at {preset.label.toLowerCase()} — {preset.ltvBps / 100}% LTV × {preset.cycles} cycles
+            {version === "v2" && ` · ${preset.slippageBps / 100}% max slippage`}.
+          </p>
         </div>
-        <div className="grid grid-cols-2 gap-4 self-start rounded-lg border border-neutral-800 bg-neutral-900/50 p-4">
-          <Stat label="Gross exposure" value={`${sim.supplied.toFixed(3)}`} />
-          <Stat label="Total debt" value={`${sim.debt.toFixed(3)}`} />
-          <Stat label="Your equity" value={`${sim.equity.toFixed(3)}`} />
+        <div className="grid grid-cols-2 gap-4 self-start rounded-xl border border-[var(--color-line)] bg-[var(--color-paper)]/60 p-4">
+          <Stat label="Gross exposure" value={sim.supplied.toFixed(3)} />
+          <Stat label="Total debt" value={sim.debt.toFixed(3)} />
+          <Stat label="Your equity" value={sim.equity.toFixed(3)} />
           <Stat label="Leverage" value={`${sim.leverage.toFixed(2)}×`} />
         </div>
       </div>
-      {mode === "leverage" && (
-        <p className="mt-3 text-xs text-neutral-500">
-          Note: gross exposure ≠ price exposure for a same-asset loop. Net directional exposure stays
-          at your equity ({sim.equity.toFixed(2)}) — collateral and debt are the same asset and
-          cancel.
+      {version === "v1" && (
+        <p className="mt-3 text-xs text-[var(--color-ink-3)]">
+          Gross exposure ≠ price exposure for a same-asset loop — net directional exposure stays at your
+          equity ({sim.equity.toFixed(2)}).
         </p>
       )}
-    </Section>
+
+      {/* Actions */}
+      {!vaultLive ? (
+        <p className="mt-6 text-sm text-[var(--color-ink-3)]">Deploy the vault to enable actions.</p>
+      ) : (
+        <div className="mt-6 flex flex-wrap gap-2.5">
+          <Btn onClick={doDeposit} disabled={isPending} primary>Deposit</Btn>
+          <Btn onClick={applyPreset} disabled={isPending}>Apply {preset.label}</Btn>
+          <Btn onClick={() => w("leverage")} disabled={isPending}>Leverage</Btn>
+          {version === "v2" && <Btn onClick={() => w("leverageFlash")} disabled={isPending}>Flash leverage</Btn>}
+          {version === "v1" && <Btn onClick={() => w("harvestAndRepay")} disabled={isPending}>Harvest</Btn>}
+          {version === "v2" && <Btn onClick={() => w("rebalance", [0n])} disabled={isPending}>Rebalance</Btn>}
+          <Btn onClick={() => w("deleverage", [2n ** 256n - 1n])} disabled={isPending}>Deleverage</Btn>
+          <Btn onClick={() => w("emergencyUnwind")} disabled={isPending} danger>Emergency unwind</Btn>
+        </div>
+      )}
+    </section>
   );
 }
 
-function VaultActions({ vault, assetAddr }: { vault: `0x${string}`; assetAddr?: `0x${string}` }) {
-  const { address } = useAccount();
-  const { writeContract, isPending } = useWriteContract();
-  const [amount, setAmount] = useState("1");
-
-  const deposit = () => {
-    if (!assetAddr || !address) return;
-    const wad = parseUnits(amount || "0", 18);
-    // ponytail: approve-then-deposit as two prompts. A permit2 single-sig flow is the
-    // upgrade if the double prompt annoys users.
-    writeContract({ address: assetAddr, abi: erc20Abi, functionName: "approve", args: [vault, wad] });
-    writeContract({ address: vault, abi: vaultAbi, functionName: "deposit", args: [wad, address] });
-  };
-  const call = (fn: "leverage" | "harvestAndRepay" | "emergencyUnwind") =>
-    writeContract({ address: vault, abi: vaultAbi, functionName: fn });
-  const deleverageAll = () =>
-    writeContract({ address: vault, abi: vaultAbi, functionName: "deleverage", args: [2n ** 256n - 1n] });
-
+/* ── atoms ── */
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <input value={amount} onChange={(e) => setAmount(e.target.value)}
-        className="w-28 rounded border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm" placeholder="amount" />
-      <Btn onClick={deposit} disabled={isPending}>Deposit</Btn>
-      <Btn onClick={() => call("leverage")} disabled={isPending}>Leverage</Btn>
-      <Btn onClick={() => call("harvestAndRepay")} disabled={isPending}>Harvest &amp; Repay</Btn>
-      <Btn onClick={deleverageAll} disabled={isPending}>Deleverage all</Btn>
-      <Btn onClick={() => call("emergencyUnwind")} disabled={isPending} danger>Emergency unwind</Btn>
-    </div>
-  );
-}
-
-// ── small presentational helpers ──
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="mt-8 rounded-xl border border-neutral-800 bg-neutral-900/30 p-6">
-      <h2 className="mb-4 text-lg font-semibold">{title}</h2>
+    <section className="surface rounded-2xl p-6">
+      <h2 className="mb-4 text-lg">{title}</h2>
       {children}
     </section>
   );
 }
-function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function Stat({ label, value, tone }: { label: string; value: string; tone?: "good" | "warn" }) {
+  const color = tone === "good" ? "text-[var(--color-positive)]" : tone === "warn" ? "text-[var(--color-warning)]" : "text-[var(--color-ink)]";
   return (
     <div>
-      <p className="text-xs text-neutral-500">{label}</p>
-      <p className={`text-lg font-medium ${highlight ? "text-amber-400" : ""}`}>{value}</p>
+      <p className="text-xs text-[var(--color-ink-3)]">{label}</p>
+      <p className={`mono-num text-lg ${color}`}>{value}</p>
     </div>
   );
 }
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block text-sm">
-      <span className="mb-1 block text-neutral-400">{label}</span>
-      {children}
-    </label>
-  );
+function Muted({ children }: { children: React.ReactNode }) {
+  return <p className="text-sm text-[var(--color-ink-2)]">{children}</p>;
 }
-function Note({ children }: { children: React.ReactNode }) {
-  return <p className="text-sm text-neutral-400">{children}</p>;
-}
-function Btn({ children, onClick, disabled, danger }: {
-  children: React.ReactNode; onClick: () => void; disabled?: boolean; danger?: boolean;
+function Btn({ children, onClick, disabled, primary, danger }: {
+  children: React.ReactNode; onClick: () => void; disabled?: boolean; primary?: boolean; danger?: boolean;
 }) {
+  const base = "rounded-full px-4 py-2 text-sm font-medium transition-colors duration-[var(--dur-fast)] disabled:opacity-40";
+  const style = danger
+    ? "border border-[var(--color-danger)]/50 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10"
+    : primary
+      ? "bg-[var(--color-accent)] text-[var(--color-paper)] hover:bg-[var(--color-accent-2)]"
+      : "border border-[var(--color-line)] text-[var(--color-ink)] hover:border-[var(--color-ink-3)]";
   return (
-    <button onClick={onClick} disabled={disabled}
-      className={`rounded px-4 py-2 text-sm font-medium disabled:opacity-50 ${
-        danger ? "border border-red-500/50 text-red-300 hover:bg-red-500/10"
-               : "bg-emerald-500 text-neutral-950 hover:bg-emerald-400"}`}>
+    <button onClick={onClick} disabled={disabled} className={`${base} ${style}`}>
       {children}
     </button>
   );

@@ -11,11 +11,13 @@ export const AAVE_POOL: Record<number, `0x${string}`> = {
   [baseSepolia.id]: "0x07eA79F68B2B3df564D0A34F8e19D9B1e339814b",
 };
 
-// Our vault, once deployed. Set NEXT_PUBLIC_VAULT_ADDRESS_<chainId> in .env.local.
-export function vaultAddress(chainId: number): `0x${string}` {
-  const env =
-    process.env[`NEXT_PUBLIC_VAULT_ADDRESS_${chainId}` as keyof typeof process.env];
-  return (env as `0x${string}`) || ZERO;
+export type VaultVersion = "v1" | "v2";
+
+// Our vaults, once deployed. Set per chain + version in .env.local, e.g.
+// NEXT_PUBLIC_VAULT_V1_11155111 / NEXT_PUBLIC_VAULT_V2_11155111.
+export function vaultAddress(chainId: number, version: VaultVersion = "v1"): `0x${string}` {
+  const key = `NEXT_PUBLIC_VAULT_${version.toUpperCase()}_${chainId}` as keyof typeof process.env;
+  return (process.env[key] as `0x${string}`) || ZERO;
 }
 
 export function aavePool(chainId: number): `0x${string}` {
