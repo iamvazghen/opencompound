@@ -5,6 +5,7 @@ const pages = [
   ["/docs", "Overview"],
   ["/docs/architecture", "How it works (Aave)"],
   ["/docs/dashboard", "Using the dashboard"],
+  ["/docs/actions", "Actions explained"],
   ["/docs/leverage-math", "Leverage math"],
   ["/docs/self-repay", "Self-repay mechanics"],
   ["/docs/risks", "Risks & liquidation"],

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAccount, useChainId, useReadContract, useReadContracts, useWriteContract } from "wagmi";
 import { erc20Abi, parseUnits, isAddress } from "viem";
 import { Nav } from "@/components/Nav";
@@ -78,6 +78,21 @@ export default function Dashboard() {
   const startWatch = () => {
     if (isAddress(watchInput.trim())) setWatchAddress(watchInput.trim() as `0x${string}`);
   };
+
+  // Render a stable shell until mounted so the first client paint matches the server
+  // (wallet connection state is only known client-side → otherwise a hydration mismatch).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) {
+    return (
+      <>
+        <Nav connect />
+        <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
+          <p className="text-sm text-[var(--color-ink-3)]">Loading…</p>
+        </main>
+      </>
+    );
+  }
 
   if (!isConnected && !watchAddress) {
     return (
