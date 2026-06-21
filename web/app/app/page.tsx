@@ -8,7 +8,7 @@ import { vaultAbi } from "@/lib/vaultAbi";
 import { yieldVaultAbi } from "@/lib/yieldVaultAbi";
 import { aavePoolAbi } from "@/lib/aaveAbi";
 import { aavePool, vaultAddress, ZERO, type VaultVersion } from "@/lib/config";
-import { simulate, RISK_PRESETS, type RiskPreset } from "@/lib/sim";
+import { simulate, RISK_PRESETS, netCarryPctAtLtv, type RiskPreset } from "@/lib/sim";
 import { fmtUsd, fmtHealth, rayToPct, fmtPct } from "@/lib/format";
 
 export default function Dashboard() {
@@ -30,33 +30,37 @@ export default function Dashboard() {
     query: { enabled: isConnected && pool !== ZERO },
   });
 
-  // Vault reads (shared + version-specific rate signal).
+  // Vault reads — shared carry views (both vaults expose them) + the raw rate pair.
+  const fns = [
+    "totalAssets",
+    "healthFactor",
+    "maxCycles",
+    "targetLtvBps",
+    "asset",
+    "breakEvenLtvBps",
+    "recommendedLtvBps",
+    version === "v1" ? "currentRates" : "aaveRates",
+  ];
+  if (version === "v2") fns.push("stakingYieldRay"); // index [8], v2 only
   const vaultReads = useReadContracts({
-    contracts: vaultLive
-      ? ([
-          { address: vault, abi, functionName: "totalAssets" },
-          { address: vault, abi, functionName: "healthFactor" },
-          { address: vault, abi, functionName: "maxCycles" },
-          { address: vault, abi, functionName: "targetLtvBps" },
-          { address: vault, abi, functionName: "asset" },
-          version === "v1"
-            ? { address: vault, abi: vaultAbi, functionName: "currentRates" }
-            : { address: vault, abi: yieldVaultAbi, functionName: "aaveRateSpread" },
-        ] as const)
-      : [],
+    contracts: vaultLive ? fns.map((functionName) => ({ address: vault, abi, functionName })) : [],
     query: { enabled: vaultLive },
   });
 
-  // v1: break-even LTV (bps) = supplyRate/borrowRate — self-repaying below it.
-  // v2: net rate spread (%) — positive is the goal.
+  // Live carry signal — break-even, recommended LTV, and the effective supply/borrow APRs.
+  // For v2 the effective supply adds the configured staking yield (mirrors the contract).
   const signal = useMemo(() => {
-    const r = vaultReads.data?.[5]?.result;
-    if (r === undefined) return {};
-    if (version === "v1") {
-      const [s, b] = r as readonly [bigint, bigint];
-      return { breakEvenBps: b > 0n ? Number((s * 10000n) / b) : 0 };
-    }
-    return { netCarryPct: rayToPct(BigInt(r as bigint)) };
+    const rate = vaultReads.data?.[7]?.result as readonly [bigint, bigint] | undefined;
+    if (!rate) return {};
+    const borrowPct = rayToPct(rate[1]);
+    let supplyPct = rayToPct(rate[0]);
+    if (version === "v2") supplyPct += rayToPct((vaultReads.data?.[8]?.result as bigint) ?? 0n);
+    return {
+      breakEvenBps: Number((vaultReads.data?.[5]?.result as bigint) ?? 0n),
+      recommendedBps: Number((vaultReads.data?.[6]?.result as bigint) ?? 0n),
+      supplyPct,
+      borrowPct,
+    };
   }, [vaultReads.data, version]);
 
   if (!isConnected) {
@@ -113,19 +117,11 @@ export default function Dashboard() {
                 <Stat label="Net equity" value={`${Number((vaultReads.data?.[0]?.result as bigint) ?? 0n) / 1e18}`} />
                 <Stat label="Health" value={fmtHealth((vaultReads.data?.[1]?.result as bigint) ?? 0n)} />
                 <Stat label="Target LTV" value={fmtPct(Number((vaultReads.data?.[3]?.result as bigint) ?? 0n) / 100)} />
-                {version === "v1" ? (
-                  <Stat
-                    label="Break-even LTV"
-                    value={signal.breakEvenBps !== undefined ? fmtPct(signal.breakEvenBps / 100) : "—"}
-                    tone="good"
-                  />
-                ) : (
-                  <Stat
-                    label="Net carry"
-                    value={signal.netCarryPct !== undefined ? fmtPct(signal.netCarryPct) : "—"}
-                    tone={signal.netCarryPct !== undefined ? (signal.netCarryPct < 0 ? "warn" : "good") : undefined}
-                  />
-                )}
+                <Stat
+                  label="Break-even LTV"
+                  value={signal.breakEvenBps ? fmtPct(signal.breakEvenBps / 100) : "—"}
+                  tone="good"
+                />
               </div>
             )}
           </Panel>
@@ -140,7 +136,9 @@ export default function Dashboard() {
           maxCycles={Number((vaultReads.data?.[2]?.result as bigint) ?? 4n)}
           targetLtvBps={Number((vaultReads.data?.[3]?.result as bigint) ?? 7000n)}
           breakEvenBps={signal.breakEvenBps}
-          netCarryPct={signal.netCarryPct}
+          recommendedBps={signal.recommendedBps}
+          supplyPct={signal.supplyPct}
+          borrowPct={signal.borrowPct}
         />
       </main>
     </>
@@ -185,7 +183,9 @@ function StrategyPanel({
   maxCycles,
   targetLtvBps,
   breakEvenBps,
-  netCarryPct,
+  recommendedBps,
+  supplyPct,
+  borrowPct,
 }: {
   version: VaultVersion;
   vault: `0x${string}`;
@@ -195,7 +195,9 @@ function StrategyPanel({
   maxCycles: number;
   targetLtvBps: number;
   breakEvenBps?: number;
-  netCarryPct?: number;
+  recommendedBps?: number;
+  supplyPct?: number;
+  borrowPct?: number;
 }) {
   const { address } = useAccount();
   const { writeContract, isPending } = useWriteContract();
@@ -203,9 +205,12 @@ function StrategyPanel({
   const [deposit, setDeposit] = useState("1");
 
   const sim = useMemo(() => simulate(Number(deposit) || 0, preset.cycles, preset.ltvBps), [deposit, preset]);
-  // v1: self-repaying while the chosen LTV stays below the live break-even (s/b).
-  const selfRepaying = version === "v1" && breakEvenBps !== undefined && preset.ltvBps < breakEvenBps;
-  const v1Bleeds = version === "v1" && breakEvenBps !== undefined && preset.ltvBps >= breakEvenBps;
+  // Live net carry at the chosen LTV, from current APRs (any asset). Self-repaying below break-even.
+  const haveRates = supplyPct !== undefined && borrowPct !== undefined;
+  const carryAt = (ltvBps: number) => (haveRates ? netCarryPctAtLtv(supplyPct!, borrowPct!, ltvBps) : undefined);
+  const presetCarry = carryAt(preset.ltvBps);
+  const selfRepaying = breakEvenBps !== undefined && breakEvenBps > 0 && preset.ltvBps < breakEvenBps;
+  const bleeds = breakEvenBps !== undefined && breakEvenBps > 0 && preset.ltvBps >= breakEvenBps;
 
   const w = (functionName: string, args?: readonly unknown[]) =>
     writeContract({ address: vault, abi: abi as never, functionName: functionName as never, args: args as never });
@@ -216,53 +221,79 @@ function StrategyPanel({
     writeContract({ address: assetAddr, abi: erc20Abi, functionName: "approve", args: [vault, wad] });
     w("deposit", [wad, address]);
   };
-  const applyPreset = () =>
+  const setLtv = (ltvBps: number, cycles: number) =>
     version === "v1"
-      ? w("setStrategy", [BigInt(preset.ltvBps), BigInt(preset.cycles)])
-      : w("setStrategy", [BigInt(preset.ltvBps), BigInt(preset.cycles), BigInt(preset.slippageBps)]);
+      ? w("setStrategy", [BigInt(ltvBps), BigInt(cycles)])
+      : w("setStrategy", [BigInt(ltvBps), BigInt(cycles), BigInt(RISK_PRESETS[1].slippageBps)]);
+  const applyPreset = () => setLtv(preset.ltvBps, preset.cycles);
+  const applyRecommended = () => recommendedBps && setLtv(recommendedBps, preset.cycles);
+
+  const carryColor = (c?: number) =>
+    c === undefined ? "text-[var(--color-ink-3)]" : c >= 0 ? "text-[var(--color-positive)]" : "text-[var(--color-warning)]";
 
   return (
     <section className="surface mt-6 rounded-2xl p-6">
       <h2 className="text-lg">Strategy</h2>
 
-      {/* Risk presets */}
+      {/* Live recommendation from current Aave rates */}
+      {recommendedBps ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/5 p-4">
+          <div className="text-sm">
+            <p className="text-[var(--color-ink)]">
+              Recommended LTV{" "}
+              <span className="mono-num text-[var(--color-accent)]">{fmtPct(recommendedBps / 100)}</span>{" "}
+              <span className="text-[var(--color-ink-3)]">
+                — 10% below break-even {fmtPct((breakEvenBps ?? 0) / 100)}; net carry{" "}
+                <span className={`mono-num ${carryColor(carryAt(recommendedBps))}`}>
+                  {carryAt(recommendedBps) !== undefined ? fmtPct(carryAt(recommendedBps)!) : "—"}
+                </span>
+              </span>
+            </p>
+            <p className="mt-1 text-xs text-[var(--color-ink-3)]">
+              Highest self-repaying LTV at the current supply {fmtPct(supplyPct ?? 0)} / borrow{" "}
+              {fmtPct(borrowPct ?? 0)} rates.
+            </p>
+          </div>
+          <Btn onClick={applyRecommended} disabled={isPending} primary>Apply recommended</Btn>
+        </div>
+      ) : null}
+
+      {/* Risk presets — each annotated with its live net carry */}
       <div className="mt-4 flex flex-wrap gap-2">
-        {RISK_PRESETS.map((p) => (
-          <button
-            key={p.key}
-            onClick={() => setPreset(p)}
-            className={`rounded-full border px-4 py-1.5 text-sm transition-colors duration-[var(--dur-fast)] ${
-              preset.key === p.key
-                ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]"
-                : "border-[var(--color-line)] text-[var(--color-ink-2)] hover:border-[var(--color-ink-3)]"
-            }`}
-          >
-            {p.label}
-            <span className="mono-num ml-2 text-xs text-[var(--color-ink-3)]">
-              {p.ltvBps / 100}% · {p.cycles}c
-            </span>
-          </button>
-        ))}
+        {RISK_PRESETS.map((p) => {
+          const c = carryAt(p.ltvBps);
+          return (
+            <button
+              key={p.key}
+              onClick={() => setPreset(p)}
+              className={`rounded-full border px-4 py-1.5 text-sm transition-colors duration-[var(--dur-fast)] ${
+                preset.key === p.key
+                  ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]"
+                  : "border-[var(--color-line)] text-[var(--color-ink-2)] hover:border-[var(--color-ink-3)]"
+              }`}
+            >
+              {p.label}
+              <span className="mono-num ml-2 text-xs text-[var(--color-ink-3)]">{p.ltvBps / 100}%</span>
+              {c !== undefined && (
+                <span className={`mono-num ml-2 text-xs ${carryColor(c)}`}>{c >= 0 ? "+" : ""}{c.toFixed(1)}%</span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {selfRepaying && (
         <p className="mt-4 rounded-xl border border-[var(--color-positive)]/40 bg-[var(--color-positive)]/10 p-3 text-sm text-[var(--color-positive)]">
-          ✓ Self-repaying: {preset.ltvBps / 100}% LTV is below the live break-even of{" "}
-          {fmtPct(breakEvenBps! / 100)} (supply ÷ borrow). Collateral yield covers the debt interest —
-          equity grows and the loan repays itself. No net price exposure (same asset).
+          ✓ Self-repaying at {preset.ltvBps / 100}% LTV — below break-even {fmtPct(breakEvenBps! / 100)}.
+          {presetCarry !== undefined && <> Net carry on your equity ≈ {fmtPct(presetCarry)}.</>} Collateral
+          yield covers the debt interest, so equity grows and the loan repays itself.
         </p>
       )}
-      {v1Bleeds && (
+      {bleeds && (
         <p className="mt-4 rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)]">
-          ⚠ {preset.ltvBps / 100}% LTV is at/above the live break-even of {fmtPct(breakEvenBps! / 100)}.
-          Debt interest outruns collateral yield — the position bleeds unless reward incentives cover
-          the gap. Drop to a lower-LTV preset to stay self-repaying.
-        </p>
-      )}
-      {version === "v2" && netCarryPct !== undefined && netCarryPct < 0 && (
-        <p className="mt-4 rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)]">
-          ⚠ Aave rate spread is {fmtPct(netCarryPct)} right now — the staking yield must cover this gap
-          for positive carry.
+          ⚠ {preset.ltvBps / 100}% LTV is at/above break-even {fmtPct(breakEvenBps! / 100)} — net carry{" "}
+          {presetCarry !== undefined ? fmtPct(presetCarry) : "negative"}. The position bleeds unless
+          rewards cover the gap. Use a lower preset or the recommended LTV to stay self-repaying.
         </p>
       )}
 

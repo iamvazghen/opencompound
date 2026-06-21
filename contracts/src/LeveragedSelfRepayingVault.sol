@@ -11,6 +11,7 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {IPool, ReserveDataLegacy} from "./interfaces/IAaveV3.sol";
+import {CarryMath} from "./libraries/CarryMath.sol";
 
 /// @title  LeveragedSelfRepayingVault
 /// @notice ERC-4626 vault that gives same-asset leveraged exposure on Aave V3
@@ -29,6 +30,7 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
     uint256 internal constant BPS = 10_000;
     uint256 public constant MAX_LTV_BPS = 9_000; // hard ceiling regardless of config
     uint256 public constant MAX_CYCLES_LIMIT = 10; // hard ceiling regardless of config
+    uint256 public constant RECO_BUFFER_BPS = 1_000; // recommended LTV sits 10% below break-even
 
     IPool public immutable pool;
     IERC20 public immutable aToken; // Aave receipt for supplied collateral
@@ -182,8 +184,22 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
     ///         Above it the debt interest outruns the collateral yield and the position bleeds.
     function breakEvenLtvBps() public view returns (uint256) {
         (uint256 s, uint256 b) = currentRates();
-        if (b == 0) return 0;
-        return (s * BPS) / b;
+        return CarryMath.breakEvenLtvBps(s, b);
+    }
+
+    /// @notice Net interest the equity earns at a given LTV, in ray (signed). (s − b·L)/(1 − L).
+    ///         The dashboard reads this across LTVs to plot the carry curve for any asset.
+    function netCarryRayAt(uint256 ltvBps) public view returns (int256) {
+        (uint256 s, uint256 b) = currentRates();
+        return CarryMath.netCarryRay(s, b, ltvBps);
+    }
+
+    /// @notice Recommended LTV (bps): the highest self-repaying LTV minus a 10% safety buffer,
+    ///         capped at the vault's hard ceiling. The "best" LTV to borrow at given live rates.
+    function recommendedLtvBps() public view returns (uint256) {
+        (uint256 s, uint256 b) = currentRates();
+        uint256 r = CarryMath.recommendedLtvBps(s, b, RECO_BUFFER_BPS);
+        return r > MAX_LTV_BPS ? MAX_LTV_BPS : r;
     }
 
     /// @notice True when the live position is self-repaying (currentLtvBps < breakEvenLtvBps).

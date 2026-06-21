@@ -12,6 +12,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 
 import {IPool, IPriceOracleGetter, IFlashLoanSimpleReceiver, ReserveDataLegacy} from "./interfaces/IAaveV3.sol";
 import {ISwapRouter} from "./interfaces/ISwapRouter.sol";
+import {CarryMath} from "./libraries/CarryMath.sol";
 
 /// @title  YieldDifferentialVault (v2)
 /// @notice The financially-real leveraged-staking vault: supply a YIELD-BEARING collateral
@@ -36,9 +37,15 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
     IERC20 public immutable vDebt; // variable debt token for debtAsset (vWETH)
     uint24 public immutable poolFee; // Uniswap v3 fee tier for collateral/debt pair
 
+    uint256 public constant RECO_BUFFER_BPS = 500; // recommended LTV sits 5% below break-even
+
     uint256 public targetLtvBps = 8_000; // conservative within e-mode; HF buffer left
     uint256 public maxCycles = 4;
     uint256 public slippageBps = 50; // 0.50% max swap slippage vs oracle mid
+    // External (staking) yield the collateral earns OUTSIDE Aave, in ray APR. wstETH ≈ 3%.
+    // Added to Aave's collateral supply rate to get the true effective yield for break-even.
+    // Owner-set estimate (can't be read on-chain generically). Conservative default.
+    uint256 public stakingYieldRay = 0.03e27;
 
     event Leveraged(uint256 cyclesRun, uint256 borrowedTotal, uint256 suppliedTotal);
     event Deleveraged(uint256 repaid);
@@ -246,12 +253,40 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
         return hf;
     }
 
-    /// @return net carry in ray (1e27): collateral supply rate − debt borrow rate. The point of
-    ///         v2 is that adding the collateral's external staking yield makes this positive.
-    function aaveRateSpread() external view returns (int256) {
-        ReserveDataLegacy memory c = pool.getReserveData(asset());
-        ReserveDataLegacy memory d = pool.getReserveData(address(debtAsset));
-        return int256(uint256(c.currentLiquidityRate)) - int256(uint256(d.currentVariableBorrowRate));
+    /// @notice Live Aave rates for the two legs, ray APR.
+    /// @return collateralSupplyRay Aave supply rate on the collateral
+    /// @return debtBorrowRay Aave variable borrow rate on the debt asset
+    function aaveRates() public view returns (uint256 collateralSupplyRay, uint256 debtBorrowRay) {
+        return (
+            uint256(pool.getReserveData(asset()).currentLiquidityRate),
+            uint256(pool.getReserveData(address(debtAsset)).currentVariableBorrowRate)
+        );
+    }
+
+    /// @notice Effective supply yield = Aave collateral supply rate + external staking yield (ray).
+    function effectiveSupplyRay() public view returns (uint256) {
+        (uint256 s,) = aaveRates();
+        return s + stakingYieldRay;
+    }
+
+    /// @notice Break-even LTV (bps) using the EFFECTIVE yield (Aave supply + staking) vs the debt
+    ///         borrow rate. Positive carry while LTV stays below this.
+    function breakEvenLtvBps() public view returns (uint256) {
+        (, uint256 b) = aaveRates();
+        return CarryMath.breakEvenLtvBps(effectiveSupplyRay(), b);
+    }
+
+    /// @notice Net carry the equity earns at a given LTV, ray (signed), using effective yield.
+    function netCarryRayAt(uint256 ltvBps) public view returns (int256) {
+        (, uint256 b) = aaveRates();
+        return CarryMath.netCarryRay(effectiveSupplyRay(), b, ltvBps);
+    }
+
+    /// @notice Recommended LTV (bps): highest positive-carry LTV minus a 5% buffer, capped.
+    function recommendedLtvBps() public view returns (uint256) {
+        (, uint256 b) = aaveRates();
+        uint256 r = CarryMath.recommendedLtvBps(effectiveSupplyRay(), b, RECO_BUFFER_BPS);
+        return r > MAX_LTV_BPS ? MAX_LTV_BPS : r;
     }
 
     // ───────────────────────────── Internal ─────────────────────────────
@@ -302,6 +337,13 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
 
     function setEMode(uint8 categoryId) external onlyOwner {
         pool.setUserEMode(categoryId);
+    }
+
+    /// @notice Update the external staking-yield estimate (ray APR) used in break-even math.
+    ///         Capped at 100% to stop a fat-finger from making any LTV look safe.
+    function setStakingYield(uint256 stakingYieldRay_) external onlyOwner {
+        require(stakingYieldRay_ <= 1e27, "yield too high");
+        stakingYieldRay = stakingYieldRay_;
     }
 
     function pause() external onlyOwner {

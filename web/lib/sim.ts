@@ -39,8 +39,24 @@ export const RISK_PRESETS: RiskPreset[] = [
   { key: "aggressive", label: "Aggressive", ltvBps: 8500, cycles: 6, slippageBps: 100 },
 ];
 
-// Net carry for a single-asset loop, on the looped (borrowed) notional.
-// Always negative for one asset (supply rate < borrow rate). Positive only with rewards.
-export function netCarryPct(supplyRatePct: number, borrowRatePct: number) {
-  return supplyRatePct - borrowRatePct;
+// ── Carry math (mirrors contracts/src/libraries/CarryMath.sol) ──
+// All rates are percentages (2 = 2% APR). Works for any asset: the only inputs are a
+// supply rate and a borrow rate. For v2, pass the EFFECTIVE supply (Aave + staking yield).
+
+/** Break-even LTV (bps): position self-repays while LTV stays below it. = supply / borrow. */
+export function breakEvenLtvBps(supplyPct: number, borrowPct: number): number {
+  if (borrowPct <= 0) return 10_000;
+  return Math.min(10_000, Math.round((supplyPct / borrowPct) * 10_000));
+}
+
+/** Net interest the equity earns at a given LTV: (s − b·L)/(1 − L), in %. */
+export function netCarryPctAtLtv(supplyPct: number, borrowPct: number, ltvBps: number): number {
+  const L = ltvBps / 10_000;
+  if (L >= 1) return Number.NEGATIVE_INFINITY;
+  return (supplyPct - borrowPct * L) / (1 - L);
+}
+
+/** Highest self-repaying LTV minus a safety buffer (default 10%). The recommended LTV. */
+export function recommendedLtvBps(supplyPct: number, borrowPct: number, bufferBps = 1_000): number {
+  return Math.round((breakEvenLtvBps(supplyPct, borrowPct) * (10_000 - bufferBps)) / 10_000);
 }
