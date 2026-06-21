@@ -153,13 +153,27 @@ contract LeveragedSelfRepayingVaultTest is Test {
         assertEq(poolMock.aToken().balanceOf(address(vault)), 1 ether, "back to unlevered collateral");
     }
 
-    /// Documents the core finding: single-asset carry is negative (supply < borrow),
-    /// so the UI must warn before looping. See FINANCIAL-REVIEW.md.
-    function test_SingleAssetCarryIsNegative() public view {
-        (uint256 supplyRate, uint256 borrowRate) = vault.currentRates();
-        assertEq(supplyRate, 0.02e27);
-        assertEq(borrowRate, 0.035e27);
-        assertLt(supplyRate, borrowRate, "single-asset loop bleeds the spread");
+    /// Corrected economics: the position is self-repaying while LTV < break-even = s/b.
+    /// Mock s=2%, b=3.5% → break-even = 0.02/0.035 = 5714 bps (~57%). See FINANCIAL-REVIEW.md.
+    function test_BreakEvenLtvDefinesSelfRepayingBand() public {
+        assertEq(vault.breakEvenLtvBps(), 5714, "break-even = supply/borrow");
+
+        _deposit(1 ether); // no debt yet → trivially self-repaying
+        assertTrue(vault.isSelfRepaying(), "unlevered position earns net yield");
+
+        // Default 70% target loops to ~63–70% LTV, which is ABOVE break-even → bleeds.
+        vault.leverage();
+        assertGt(vault.currentLtvBps(), vault.breakEvenLtvBps());
+        assertFalse(vault.isSelfRepaying(), "70% LTV > 57% break-even bleeds");
+    }
+
+    /// Managed below break-even, the same loop IS self-repaying.
+    function test_LowLtvLoopIsSelfRepaying() public {
+        _deposit(1 ether);
+        vault.setStrategy(4000, 4); // 40% target — below the 57% break-even
+        vault.leverage();
+        assertLt(vault.currentLtvBps(), vault.breakEvenLtvBps());
+        assertTrue(vault.isSelfRepaying(), "40% LTV < 57% break-even self-repays");
     }
 
     function test_SetStrategyRejectsAboveCeilings() public {

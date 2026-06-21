@@ -165,19 +165,34 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
         return hf;
     }
 
-    /// @notice Live Aave rates for the underlying, in ray (1e27). For a SINGLE-ASSET loop,
-    ///         net carry = supplyRateRay − borrowRateRay and is ALWAYS negative — the UI
-    ///         reads this to warn before a user loops into a guaranteed loss. See
-    ///         FINANCIAL-REVIEW.md.
+    /// @notice Live Aave rates for the underlying, in ray (1e27).
+    /// @dev Supply yield is earned on the (larger) collateral, borrow interest paid on the
+    ///      (smaller) debt — so the position's NET interest is positive while LTV stays below
+    ///      the break-even (see breakEvenLtvBps), not "always negative". See FINANCIAL-REVIEW.md.
     /// @return supplyRateRay current liquidity (supply) rate
     /// @return borrowRateRay current variable borrow rate
-    function currentRates() external view returns (uint256 supplyRateRay, uint256 borrowRateRay) {
+    function currentRates() public view returns (uint256 supplyRateRay, uint256 borrowRateRay) {
         ReserveDataLegacy memory r = pool.getReserveData(asset());
         return (r.currentLiquidityRate, r.currentVariableBorrowRate);
     }
 
+    /// @notice Break-even LTV in bps: the position earns more supply interest than it pays in
+    ///         borrow interest — it self-repays from yield — while currentLtvBps() stays BELOW
+    ///         this. Equals supplyRate/borrowRate (≈ utilization·(1−reserveFactor) on Aave).
+    ///         Above it the debt interest outruns the collateral yield and the position bleeds.
+    function breakEvenLtvBps() public view returns (uint256) {
+        (uint256 s, uint256 b) = currentRates();
+        if (b == 0) return 0;
+        return (s * BPS) / b;
+    }
+
+    /// @notice True when the live position is self-repaying (currentLtvBps < breakEvenLtvBps).
+    function isSelfRepaying() external view returns (bool) {
+        return currentLtvBps() < breakEvenLtvBps();
+    }
+
     /// @return current loan-to-value of the vault's Aave position, in bps.
-    function currentLtvBps() external view returns (uint256) {
+    function currentLtvBps() public view returns (uint256) {
         uint256 collateral = aToken.balanceOf(address(this));
         if (collateral == 0) return 0;
         uint256 debt = variableDebtToken.balanceOf(address(this));

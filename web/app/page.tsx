@@ -60,14 +60,15 @@ export default function Landing() {
         <section className="mx-auto max-w-5xl px-6 py-16">
           <h2 className="text-[var(--text-display-s)]">Two modes. Stated honestly.</h2>
           <p className="mt-3 max-w-2xl text-[var(--color-ink-2)]">
-            Same-asset looping does not amplify price exposure — collateral and debt cancel — and its
-            carry is negative. We show you when a strategy earns, and when it bleeds.
+            Same-asset looping doesn&apos;t amplify price exposure — collateral and debt cancel — but its
+            net interest is positive below the break-even LTV (s/b). We show you that line live, so you
+            know when a position self-repays and when it bleeds.
           </p>
           <div className="mt-10 grid gap-5 md:grid-cols-2">
             <ModeCard
               tag="single-asset · v1"
               title="Reward-Farming Leverage"
-              body="Loops supply→borrow→re-supply up to 4× at 70% LTV. Net price exposure is zero and rate carry is negative — profitable only when incentive rewards beat the spread. The dashboard reads live Aave rates and warns before you loop into a loss."
+              body="Loops supply→borrow→re-supply at a managed LTV. No net price exposure (same asset cancels), but net interest is positive while LTV stays below break-even (s/b) — so it self-repays as a loan, with reward farming on top. The dashboard shows your live break-even."
             />
             <ModeCard
               tag="wstETH / WETH · v2"

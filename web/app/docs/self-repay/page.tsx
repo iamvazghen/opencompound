@@ -6,14 +6,15 @@ export default function SelfRepay() {
         &quot;Self-repaying&quot; means yield pays down your debt without you adding funds. It only exists
         when there is a positive income source. There are exactly two on Aave:
       </p>
-      <h2 className="pt-4 text-xl font-semibold text-white">1. Reward incentives (v1, single-asset)</h2>
+      <h2 className="pt-4 text-xl font-semibold text-white">1. Net interest below break-even (v1, single-asset)</h2>
       <p>
-        Same-asset carry is <strong>negative</strong>: on Aave the borrow APY always exceeds the supply
-        APY, so supplied interest can never cover borrow interest — the original &quot;surplus interest&quot;
-        idea is mathematically impossible for one asset. The only positive source is reward tokens
-        (Aave Merit, LM campaigns). A keeper claims them, swaps to the underlying, and{" "}
-        <code>harvestAndRepay()</code> routes them into debt. Profitable iff{" "}
-        <code>supply + reward − borrow &gt; 0</code>.
+        Supply yield is earned on the collateral; borrow interest on the (smaller) debt. Net interest
+        is <code>E·(s − b·L)/(1 − L)</code>, <strong>positive while LTV &lt; s/b</strong> — the
+        break-even. Example: supply 2%, borrow 4% → break-even 50%; at 40% LTV the collateral yield
+        exceeds the debt interest, equity grows, and the loan repays itself. On Aave{" "}
+        <code>s = b·utilization·(1 − reserveFactor)</code>, so break-even ≈ 40–70%. The vault exposes{" "}
+        <code>breakEvenLtvBps()</code> and <code>isSelfRepaying()</code>; the dashboard keeps you below
+        it. Incentive rewards (Aave Merit, LM) stack on top via <code>harvestAndRepay()</code>.
       </p>
       <h2 className="pt-4 text-xl font-semibold text-white">2. Yield differential (v2, wstETH / WETH)</h2>
       <p>

@@ -47,14 +47,16 @@ export default function Dashboard() {
     query: { enabled: vaultLive },
   });
 
-  const netCarry = useMemo(() => {
+  // v1: break-even LTV (bps) = supplyRate/borrowRate — self-repaying below it.
+  // v2: net rate spread (%) — positive is the goal.
+  const signal = useMemo(() => {
     const r = vaultReads.data?.[5]?.result;
-    if (r === undefined) return undefined;
+    if (r === undefined) return {};
     if (version === "v1") {
       const [s, b] = r as readonly [bigint, bigint];
-      return rayToPct(s) - rayToPct(b);
+      return { breakEvenBps: b > 0n ? Number((s * 10000n) / b) : 0 };
     }
-    return rayToPct(BigInt(r as bigint)); // signed ray spread → percent
+    return { netCarryPct: rayToPct(BigInt(r as bigint)) };
   }, [vaultReads.data, version]);
 
   if (!isConnected) {
@@ -111,11 +113,19 @@ export default function Dashboard() {
                 <Stat label="Net equity" value={`${Number((vaultReads.data?.[0]?.result as bigint) ?? 0n) / 1e18}`} />
                 <Stat label="Health" value={fmtHealth((vaultReads.data?.[1]?.result as bigint) ?? 0n)} />
                 <Stat label="Target LTV" value={fmtPct(Number((vaultReads.data?.[3]?.result as bigint) ?? 0n) / 100)} />
-                <Stat
-                  label="Net carry"
-                  value={netCarry !== undefined ? fmtPct(netCarry) : "—"}
-                  tone={netCarry !== undefined ? (netCarry < 0 ? "warn" : "good") : undefined}
-                />
+                {version === "v1" ? (
+                  <Stat
+                    label="Break-even LTV"
+                    value={signal.breakEvenBps !== undefined ? fmtPct(signal.breakEvenBps / 100) : "—"}
+                    tone="good"
+                  />
+                ) : (
+                  <Stat
+                    label="Net carry"
+                    value={signal.netCarryPct !== undefined ? fmtPct(signal.netCarryPct) : "—"}
+                    tone={signal.netCarryPct !== undefined ? (signal.netCarryPct < 0 ? "warn" : "good") : undefined}
+                  />
+                )}
               </div>
             )}
           </Panel>
@@ -129,7 +139,8 @@ export default function Dashboard() {
           assetAddr={vaultReads.data?.[4]?.result as `0x${string}` | undefined}
           maxCycles={Number((vaultReads.data?.[2]?.result as bigint) ?? 4n)}
           targetLtvBps={Number((vaultReads.data?.[3]?.result as bigint) ?? 7000n)}
-          netCarry={netCarry}
+          breakEvenBps={signal.breakEvenBps}
+          netCarryPct={signal.netCarryPct}
         />
       </main>
     </>
@@ -173,7 +184,8 @@ function StrategyPanel({
   assetAddr,
   maxCycles,
   targetLtvBps,
-  netCarry,
+  breakEvenBps,
+  netCarryPct,
 }: {
   version: VaultVersion;
   vault: `0x${string}`;
@@ -182,15 +194,18 @@ function StrategyPanel({
   assetAddr?: `0x${string}`;
   maxCycles: number;
   targetLtvBps: number;
-  netCarry?: number;
+  breakEvenBps?: number;
+  netCarryPct?: number;
 }) {
   const { address } = useAccount();
   const { writeContract, isPending } = useWriteContract();
-  const [preset, setPreset] = useState<RiskPreset>(RISK_PRESETS[1]);
+  const [preset, setPreset] = useState<RiskPreset>(RISK_PRESETS[0]);
   const [deposit, setDeposit] = useState("1");
 
   const sim = useMemo(() => simulate(Number(deposit) || 0, preset.cycles, preset.ltvBps), [deposit, preset]);
-  const carryLoses = version === "v1" && netCarry !== undefined && netCarry < 0;
+  // v1: self-repaying while the chosen LTV stays below the live break-even (s/b).
+  const selfRepaying = version === "v1" && breakEvenBps !== undefined && preset.ltvBps < breakEvenBps;
+  const v1Bleeds = version === "v1" && breakEvenBps !== undefined && preset.ltvBps >= breakEvenBps;
 
   const w = (functionName: string, args?: readonly unknown[]) =>
     writeContract({ address: vault, abi: abi as never, functionName: functionName as never, args: args as never });
@@ -230,10 +245,24 @@ function StrategyPanel({
         ))}
       </div>
 
-      {carryLoses && (
+      {selfRepaying && (
+        <p className="mt-4 rounded-xl border border-[var(--color-positive)]/40 bg-[var(--color-positive)]/10 p-3 text-sm text-[var(--color-positive)]">
+          ✓ Self-repaying: {preset.ltvBps / 100}% LTV is below the live break-even of{" "}
+          {fmtPct(breakEvenBps! / 100)} (supply ÷ borrow). Collateral yield covers the debt interest —
+          equity grows and the loan repays itself. No net price exposure (same asset).
+        </p>
+      )}
+      {v1Bleeds && (
         <p className="mt-4 rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)]">
-          ⚠ Net carry is {fmtPct(netCarry!)}. Same-asset looping loses the spread every block and gives
-          zero net price exposure — only loop if reward incentives exceed it.
+          ⚠ {preset.ltvBps / 100}% LTV is at/above the live break-even of {fmtPct(breakEvenBps! / 100)}.
+          Debt interest outruns collateral yield — the position bleeds unless reward incentives cover
+          the gap. Drop to a lower-LTV preset to stay self-repaying.
+        </p>
+      )}
+      {version === "v2" && netCarryPct !== undefined && netCarryPct < 0 && (
+        <p className="mt-4 rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)]">
+          ⚠ Aave rate spread is {fmtPct(netCarryPct)} right now — the staking yield must cover this gap
+          for positive carry.
         </p>
       )}
 

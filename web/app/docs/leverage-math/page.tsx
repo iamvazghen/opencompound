@@ -31,7 +31,8 @@ max leverage (n→∞) = 1 / (1 − r)`}
       <p className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-300">
         Critical: for a <em>same-asset</em> loop, gross exposure is NOT price exposure. You are long
         2.77 and short 1.77 of the same token — net directional exposure equals your equity (1.0). The
-        loop only amplifies carry, which is negative. See self-repay mechanics.
+        loop amplifies carry, which is net-positive while LTV stays below the break-even (s/b). See
+        self-repay mechanics.
       </p>
     </>
   );

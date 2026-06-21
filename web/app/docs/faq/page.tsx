@@ -2,7 +2,7 @@ const qa: [string, string][] = [
   ["Does same-asset looping increase my ETH exposure?",
    "No. Collateral and debt are the same token and cancel — net directional exposure equals your equity. Looping only amplifies carry (which is negative for one asset)."],
   ["So why offer single-asset mode at all?",
-   "For leveraged reward/points farming: when Aave incentive rewards exceed the supply/borrow spread, multiplying the supplied notional is profitable. The dashboard warns when carry is negative."],
+   "Because net interest is positive while LTV stays below break-even (s/b ≈ 40–70%): the collateral yield covers the debt interest, so it works as a self-repaying loan. Reward farming stacks on top. The dashboard shows your live break-even and flags when you cross it."],
   ["How is the self-repaying version different?",
    "It supplies a yield-bearing asset (wstETH) and borrows its base (WETH) in e-mode. Positive carry means the debt is paid down by yield over time."],
   ["Can I get liquidated?",

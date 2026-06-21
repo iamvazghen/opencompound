@@ -74,17 +74,35 @@ export default function Strategies() {
           <Code>{`supplied = 1 + 0.7 + 0.49 + 0.343 + 0.2401 = 2.7731   (gross exposure 2.77x)
 debt     =     0.7 + 0.49 + 0.343 + 0.2401 = 1.7731
 equity   = supplied - debt = 1.0                     (leverage never changes equity)`}</Code>
-          <p className="rounded border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)]">
-            ⚠ For a same-asset loop this 2.77× is <strong>not</strong> price exposure — collateral and
-            debt are the same token and cancel, so net directional exposure stays at your equity
-            (1.0). And the carry is negative. That&apos;s why the contract exposes{" "}
-            <Fn>currentRates()</Fn> and the dashboard blocks looping when supply rate &lt; borrow rate.
+          <h3 className="pt-2 text-lg font-medium text-white">When it self-repays</h3>
+          <p>
+            Supply yield is earned on the <em>collateral</em> (the larger base); borrow interest is
+            paid on the <em>debt</em> (smaller). So net interest is{" "}
+            <Fn>E·(s − b·L)/(1 − L)</Fn>, which is <strong>positive whenever LTV &lt; s/b</strong> — the
+            break-even. Below it, collateral yield covers the debt interest, equity grows, and the loan
+            repays itself; above it, the position bleeds. The contract computes this live:
           </p>
-          <Code>{`// the guard the dashboard reads — see test_SingleAssetCarryIsNegative
-function currentRates() external view returns (uint256 supplyRateRay, uint256 borrowRateRay) {
-    ReserveDataLegacy memory r = pool.getReserveData(asset());
-    return (r.currentLiquidityRate, r.currentVariableBorrowRate);
+          <Code>{`function breakEvenLtvBps() public view returns (uint256) {
+    (uint256 s, uint256 b) = currentRates();      // live Aave supply & borrow rates
+    return b == 0 ? 0 : (s * BPS) / b;            // = s / b
+}
+function isSelfRepaying() external view returns (bool) {
+    return currentLtvBps() < breakEvenLtvBps();   // dashboard reads this
 }`}</Code>
+          <p>
+            On Aave, <Fn>s = b · utilization · (1 − reserveFactor)</Fn>, so break-even ≈
+            utilization·(1−reserveFactor) — roughly <strong>40–70%</strong> LTV on mainnet (84.9% on the
+            Base Sepolia market we deployed to). The dashboard shows your live break-even and marks the
+            position self-repaying while you stay below it. Tests:{" "}
+            <Fn>test_BreakEvenLtvDefinesSelfRepayingBand</Fn>, <Fn>test_LowLtvLoopIsSelfRepaying</Fn>.
+          </p>
+          <p className="rounded border border-[var(--color-line)] bg-[var(--color-paper-2)] p-3 text-sm">
+            Two honest caveats: (1) same-asset gives <strong>no leveraged price exposure</strong> —
+            collateral and debt cancel, net stays at your equity (1.0); (2) looping never beats plain
+            supplying for raw yield. So v1&apos;s real value is a <strong>self-repaying loan</strong>{" "}
+            (borrow liquidity to use; collateral yield services it) and reward farming — managed below
+            break-even.
+          </p>
           <p className="text-sm text-neutral-400">
             Safety: <Fn>nonReentrant</Fn> on every state change, <Fn>Pausable</Fn>, owner-gated
             leverage, and hard ceilings <Fn>MAX_LTV_BPS = 9000</Fn> / <Fn>MAX_CYCLES_LIMIT = 10</Fn>.
@@ -183,7 +201,7 @@ function currentRates() external view returns (uint256 supplyRateRay, uint256 bo
         <Section id="honest">
           <h2 className="text-2xl font-semibold text-white">The honest economics</h2>
           <ul className="list-disc space-y-2 pl-5">
-            <li><strong>Same-asset loop ≠ leverage on price.</strong> Collateral and debt cancel; you only amplify carry, which is negative. v1 makes sense <em>only</em> with incentive rewards.</li>
+            <li><strong>Same-asset loop ≠ leverage on price.</strong> Collateral and debt cancel — no directional exposure. But net interest is positive while LTV &lt; s/b, so v1 self-repays as a managed loan, and reward farming stacks on top.</li>
             <li><strong>Real leverage needs two assets.</strong> v2&apos;s wstETH/WETH gives positive carry and genuine leveraged-staking exposure.</li>
             <li><strong>Self-repaying = passive equity growth</strong>, not a magic debt eraser. Appreciation is your equity.</li>
           </ul>

@@ -20,34 +20,38 @@ Deposit `D = 1`, loop factor `r = 0.70`, 4 cycles:
 - **Exposure (gross supplied): 2.77×.** Max possible at 70% LTV is `1/(1−0.7) = 3.33×`; 4 cycles reaches 83% of that.
 - **Net equity stays 1.0** — leverage never changes equity, only gross size.
 
-### Why it's broken as pitched
-The README sells this as "amplify your exposure to a single asset (e.g. ETH)." **It does not.** When collateral and debt are the *same* asset, your **net directional exposure is zero**:
+### Net interest — correct treatment (CORRECTION)
+> An earlier version of this review claimed same-asset positions are "always negative carry." **That was wrong.** It collapsed the whole position into the marginal-loop spread and ignored that the equity portion of the collateral earns supply yield at no borrow cost. The correct treatment:
+
+Supply yield is earned on the **collateral** `C`; borrow interest is paid on the **debt** `D`. With LTV `L = D/C` and equity `E = C − D = C(1−L)`:
 
 ```
-net ETH = 2.7731 collateral − 1.7731 debt = 1.0 ETH  (exactly your deposit)
+net interest = s·C − b·D = C·(s − b·L) = E·(s − b·L)/(1 − L)
 ```
 
-You are simultaneously long 2.77 ETH and short 1.77 ETH. If ETH doubles, your collateral and your debt both double — they cancel. Same-asset looping gives you **no leveraged price exposure at all.** The only thing it amplifies is the **carry** (rate differential) on the looped notional — and that carry is **negative**:
+This is **positive whenever `L < s/b`.** The **break-even LTV is `s/b`** (supply rate ÷ borrow rate). Worked example with s = 2%, b = 4%:
 
 ```
-net carry ≈ (supply_APY − borrow_APY) × looped_notional   →   supply_APY < borrow_APY  ALWAYS
+break-even L = s/b = 0.50
+at L = 0.50:  s·C = 2%·1   = 0.02   ==   b·D = 4%·0.5 = 0.02   → net 0
+at L < 0.50:  collateral yield exceeds debt interest  → net POSITIVE (self-repaying)
+at L > 0.50:  debt interest exceeds collateral yield  → net NEGATIVE (bleeds)
 ```
 
-On Aave the borrow rate always exceeds the supply rate for the same asset (the spread funds suppliers + reserve factor). So same-asset looping **bleeds the spread every block and buys you nothing.** It is strictly worse than just holding.
+On Aave `s = b · utilization · (1 − reserveFactor)`, so `break-even = s/b ≈ utilization·(1−reserveFactor)` — typically **~40–70%** on mainnet, and **84.9%** on the Base Sepolia test market we deployed to. There is a real, usable self-repaying band.
 
-### When it *is* rational
-Exactly one case: **incentive rewards.** If supplying earns reward tokens (Aave Merit, an LM campaign, a points program) at rate `reward_APR`, the loop multiplies the reward-earning notional. It's profitable iff:
+### So it *does* work — as a self-repaying loan, not as leverage
+Two honest caveats remain, and both are about framing, not viability:
 
-```
-supply_APY + reward_APR − borrow_APY  >  0
-```
+1. **No leveraged price exposure.** Collateral and debt are the same token and cancel: net directional exposure = your equity (1.0), regardless of cycles. This is a *yield / self-repaying* play, not a directional-leverage play.
+2. **Looping doesn't beat plain supplying for raw yield** — `(s−b·L)/(1−L) < s` for any `L>0`. Each loop adds the negative spread on the borrowed slice. So the reason to borrow the same asset is **not** to boost yield.
 
-That's "leveraged reward/points farming," not "leveraged ETH exposure." Legitimate, but a completely different product with a different pitch.
+The genuine product is a **self-repaying loan**: deposit collateral, borrow the same asset to *use as liquidity*, and keep `LTV < s/b` so the collateral's supply yield services (and slowly repays) the debt — no top-ups needed, equity non-decreasing, debt trends to zero. Reward farming is the second use case. Both are real; both require keeping LTV below the live break-even, which floats with utilization — hence "managed properly."
 
 ### Fine-tune applied
-- **Relabel** v1 single-asset mode as **Reward-Farming Leverage**, not "amplify exposure." Done in README/ROADMAP.
-- **Surface net carry in the UI.** Contract now exposes `currentRates()` (supply + borrow rate). The dashboard computes net carry and **blocks/warns** before a user loops into a guaranteed loss.
-- Keep the contract mechanics — they're correct; only the framing and a safety indicator were wrong.
+- Contract now exposes **`breakEvenLtvBps()`** (= s/b) and **`isSelfRepaying()`** (currentLtvBps < break-even), tested in `test_BreakEvenLtvDefinesSelfRepayingBand` / `test_LowLtvLoopIsSelfRepaying`.
+- Dashboard now shows the **live break-even LTV**, marks the position **self-repaying (green)** when below it, and warns **only** when the chosen LTV meets/exceeds break-even — not a blanket "don't loop."
+- Default target LTV for the self-repaying preset sits below a typical break-even; the aggressive preset can exceed it and is flagged.
 
 ---
 
