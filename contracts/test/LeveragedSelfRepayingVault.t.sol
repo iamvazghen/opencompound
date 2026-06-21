@@ -6,7 +6,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {LeveragedSelfRepayingVault} from "../src/LeveragedSelfRepayingVault.sol";
-import {IPool, ReserveDataLegacy} from "../src/interfaces/IAaveV3.sol";
+import {IPool, IPoolAddressesProvider, ReserveDataLegacy} from "../src/interfaces/IAaveV3.sol";
 
 /// @dev Mintable test token used for the underlying, aToken and debtToken.
 contract MockToken is ERC20 {
@@ -76,6 +76,14 @@ contract MockPool is IPool {
         // Realistic single-asset spread: supply 2% < borrow 3.5% (ray = 1e27).
         r.currentLiquidityRate = 0.02e27;
         r.currentVariableBorrowRate = 0.035e27;
+    }
+
+    function ADDRESSES_PROVIDER() external pure returns (IPoolAddressesProvider) {
+        return IPoolAddressesProvider(address(0)); // unused by the single-asset vault
+    }
+
+    function flashLoanSimple(address, address, uint256, bytes calldata, uint16) external pure {
+        revert("not supported in single-asset mock");
     }
 }
 

@@ -40,13 +40,22 @@ Status legend: ✅ done · 🔨 in progress · 🔜 next · 💤 later
 - ✅ Docs: overview, leverage math, self-repay mechanics, risks/liquidation, contract reference, FAQ.
 - ✅ Foundry deploy script (`script/Deploy.s.sol`) — deploy the vault, then wire its address into the dashboard env.
 
-## Phase 6 — v2 yield-differential mode 💤
-- 💤 Two-asset vault: supply **wstETH**, borrow **WETH**, e-mode — real positive carry.
-- 💤 Oracle-based `totalAssets` (net equity across two assets).
-- 💤 Keeper automation (Gelato / Chainlink Automation) for scheduled harvest + rebalance.
+## Phase 6 — v2 yield-differential vault ✅
+- ✅ `YieldDifferentialVault`: two-asset, supply **wstETH** / borrow **WETH** in e-mode — real positive carry.
+- ✅ Oracle-based `totalAssets` (net equity in collateral units via Aave price oracle).
+- ✅ Iterative `leverage()` + Uniswap-v3 swaps; `deleverage()`, `rebalance()`, `emergencyUnwind()`.
+- ✅ **`leverageFlash()`** — Aave flash-loan one-shot leverage to exact target LTV (Alchemix pattern). 6 tests green.
+- ✅ Self-repay corrected to **passive equity compounding** (appreciation = equity, not free cash).
+- 💤 Keeper automation (Gelato / Chainlink Automation) for scheduled `rebalance()`.
 
-## Phase 7 — Polish 💤
-- 💤 Subgraph for history/analytics. Audit prep. Mainnet only after audit.
+## Phase 7 — Refinements backlog (from REFINEMENTS.md) 💤
+- 💤 On-chain Merkl reward claim for v1 (claim + balance-delta + swap→repay).
+- 💤 Performance fee (yield-checkpoint pattern from Aave's ATokenVault).
+- 💤 Supply-cap-aware `maxDeposit` / withdrawable-aware `maxWithdraw`.
+- 💤 Dashboard risk presets (conservative/balanced/aggressive) + wire `leverageFlash` + v2 vault into the UI.
+
+## Phase 8 — Polish 💤
+- 💤 Subgraph for history/analytics. Mainnet-fork test suite. Audit prep. Mainnet only after audit.
 
 ---
 

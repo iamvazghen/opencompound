@@ -25,10 +25,12 @@ v1 gives you the leverage loop and an honest reward-funded repay sink. v2 is whe
 
 ```
 OpenCompound/
-├── contracts/        Foundry project — the vault + Aave interfaces + tests   ✅ built, 5/5 green
-│   └── src/LeveragedSelfRepayingVault.sol
+├── contracts/        Foundry project — vaults + Aave interfaces + tests      ✅ built, 12/12 green
+│   ├── src/LeveragedSelfRepayingVault.sol   v1 single-asset (reward-farming)
+│   └── src/YieldDifferentialVault.sol       v2 wstETH/WETH + flash-loan leverage
 ├── web/              Next.js dashboard + landing + docs                      ✅ built, builds clean
 ├── FINANCIAL-REVIEW.md  Viability analysis of both strategies                ✅
+├── REFINEMENTS.md       Repo-review synthesis → applied efficiency changes    ✅
 ├── reference/        Cloned repos to learn from (git-ignored, not shipped)
 │   ├── aave-vault/        Aave's official ERC-4626 vault
 │   ├── v2-foundry/        Alchemix — the self-repaying pioneer

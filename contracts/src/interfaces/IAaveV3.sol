@@ -38,6 +38,29 @@ interface IPool {
         );
 
     function getReserveData(address asset) external view returns (ReserveDataLegacy memory);
+
+    function ADDRESSES_PROVIDER() external view returns (IPoolAddressesProvider);
+
+    /// @notice Single-asset flash loan. Calls `receiver.executeOperation(...)`, then pulls
+    ///         `amount + premium` back from the receiver.
+    function flashLoanSimple(address receiver, address asset, uint256 amount, bytes calldata params, uint16 referralCode)
+        external;
+}
+
+/// @notice Implemented by a flash-loan receiver (here, the vault itself).
+interface IFlashLoanSimpleReceiver {
+    function executeOperation(address asset, uint256 amount, uint256 premium, address initiator, bytes calldata params)
+        external
+        returns (bool);
+}
+
+interface IPoolAddressesProvider {
+    function getPriceOracle() external view returns (address);
+}
+
+/// @notice Aave price oracle — asset prices in the protocol base currency (USD, 8 decimals).
+interface IPriceOracleGetter {
+    function getAssetPrice(address asset) external view returns (uint256);
 }
 
 /// @dev Trimmed to the two token addresses we need from Aave's reserve struct.
