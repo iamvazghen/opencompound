@@ -67,7 +67,12 @@ export default function Landing() {
               </p>
             </div>
           </div>
-          <p className="mt-8 text-center text-xs text-neutral-600">
+          <p className="mt-8 text-center text-sm">
+            <Link href="/strategies" className="text-emerald-400 hover:text-emerald-300">
+              See how both strategies are implemented on-chain →
+            </Link>
+          </p>
+          <p className="mt-6 text-center text-xs text-neutral-600">
             Educational / portfolio project. Not audited. Testnet only. Not financial advice.
           </p>
         </section>

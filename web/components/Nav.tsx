@@ -7,6 +7,7 @@ export function Nav({ connect = false }: { connect?: boolean }) {
         <span className="text-emerald-400">◇</span> OpenCompound
       </Link>
       <nav className="flex items-center gap-6 text-sm text-neutral-300">
+        <Link href="/strategies" className="hover:text-white">Strategies</Link>
         <Link href="/app" className="hover:text-white">Dashboard</Link>
         <Link href="/docs" className="hover:text-white">Docs</Link>
         {connect ? (
