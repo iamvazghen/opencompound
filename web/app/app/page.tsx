@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useAccount, useChainId, useReadContract, useReadContracts, useWriteContract } from "wagmi";
+import { useAccount, useChainId, useReadContract, useReadContracts } from "wagmi";
 import { erc20Abi, parseUnits, isAddress } from "viem";
 import { Nav } from "@/components/Nav";
 import { vaultAbi } from "@/lib/vaultAbi";
@@ -10,6 +10,7 @@ import { aavePoolAbi } from "@/lib/aaveAbi";
 import { aavePool, vaultAddress, ZERO, explorerBase, aaveMarketUrl, v1Markets, type VaultVersion } from "@/lib/config";
 import { simulate, RISK_PRESETS, netCarryPctAtLtv, type RiskPreset } from "@/lib/sim";
 import { fmtUsd, fmtHealth, rayToPct, fmtPct } from "@/lib/format";
+import { useTx } from "@/lib/useTx";
 
 export default function Dashboard() {
   const { address, isConnected } = useAccount();
@@ -99,6 +100,10 @@ export default function Dashboard() {
   // Render a stable shell until mounted so the first client paint matches the server
   // (wallet connection state is only known client-side → otherwise a hydration mismatch).
   const [mounted, setMounted] = useState(false);
+  // Flip to client-only after first paint so SSR and first client render agree (wallet state is
+  // client-only) — avoids a hydration mismatch. The cascading-render the lint rule warns about is
+  // exactly the intent here (one extra render to swap the shell for the real UI).
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMounted(true), []);
   if (!mounted) {
     return (
@@ -378,9 +383,22 @@ function StrategyPanel({
   readOnly: boolean;
 }) {
   const { address } = useAccount();
-  const { writeContract, isPending } = useWriteContract();
+  const chainId = useChainId();
+  const run = useTx(chainId);
+  const [busy, setBusy] = useState(false);
   const [preset, setPreset] = useState<RiskPreset>(RISK_PRESETS[0]);
   const [deposit, setDeposit] = useState("1");
+  const isPending = busy;
+
+  // Run one or more writes with toasts; `busy` disables the action buttons until they settle.
+  const act = async (steps: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await steps();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const sim = useMemo(() => simulate(Number(deposit) || 0, preset.cycles, preset.ltvBps), [deposit, preset]);
   // Live net carry at the chosen LTV, from current APRs (any asset). Self-repaying below break-even.
@@ -390,15 +408,27 @@ function StrategyPanel({
   const selfRepaying = breakEvenBps !== undefined && breakEvenBps > 0 && preset.ltvBps < breakEvenBps;
   const bleeds = breakEvenBps !== undefined && breakEvenBps > 0 && preset.ltvBps >= breakEvenBps;
 
-  const w = (functionName: string, args?: readonly unknown[]) =>
-    writeContract({ address: vault, abi: abi as never, functionName: functionName as never, args: args as never });
+  // Single vault write, wrapped in a toast + receipt wait.
+  const w = (label: string, functionName: string, args?: readonly unknown[]) =>
+    act(() =>
+      run(label, { address: vault, abi: abi as never, functionName: functionName as never, args: args as never }).then(() => {}),
+    );
 
-  const doDeposit = () => {
-    if (!assetAddr || !address) return;
-    const wad = parseUnits(deposit || "0", decimals);
-    writeContract({ address: assetAddr, abi: erc20Abi, functionName: "approve", args: [vault, wad] });
-    w("deposit", [wad, address]);
-  };
+  const doDeposit = () =>
+    act(async () => {
+      if (!assetAddr || !address) return;
+      const wad = parseUnits(deposit || "0", decimals);
+      // Approve first; only deposit once the approval has actually confirmed (no more racing).
+      const approved = await run("Approve", {
+        address: assetAddr,
+        abi: erc20Abi,
+        functionName: "approve",
+        args: [vault, wad],
+      });
+      if (approved) {
+        await run("Deposit", { address: vault, abi: abi as never, functionName: "deposit" as never, args: [wad, address] as never });
+      }
+    });
 
   // Migrate an existing Aave supply position: approve the vault for the user's aTokens, then
   // depositAToken — no new funds (v1 only). aToken address read from the vault.
@@ -408,17 +438,20 @@ function StrategyPanel({
     functionName: "aToken",
     query: { enabled: version === "v1" && vaultLive },
   });
-  const migrateATokens = () => {
-    const aTok = aTokenRead.data as `0x${string}` | undefined;
-    if (!aTok || !address) return;
-    const wad = parseUnits(deposit || "0", decimals);
-    writeContract({ address: aTok, abi: erc20Abi, functionName: "approve", args: [vault, wad] });
-    w("depositAToken", [wad, address]);
-  };
+  const migrateATokens = () =>
+    act(async () => {
+      const aTok = aTokenRead.data as `0x${string}` | undefined;
+      if (!aTok || !address) return;
+      const wad = parseUnits(deposit || "0", decimals);
+      const approved = await run("Approve aTokens", { address: aTok, abi: erc20Abi, functionName: "approve", args: [vault, wad] });
+      if (approved) {
+        await run("Migrate aTokens", { address: vault, abi: abi as never, functionName: "depositAToken" as never, args: [wad, address] as never });
+      }
+    });
   const setLtv = (ltvBps: number, cycles: number) =>
     version === "v1"
-      ? w("setStrategy", [BigInt(ltvBps), BigInt(cycles)])
-      : w("setStrategy", [BigInt(ltvBps), BigInt(cycles), BigInt(RISK_PRESETS[1].slippageBps)]);
+      ? w("Set strategy", "setStrategy", [BigInt(ltvBps), BigInt(cycles)])
+      : w("Set strategy", "setStrategy", [BigInt(ltvBps), BigInt(cycles), BigInt(RISK_PRESETS[1].slippageBps)]);
   const applyPreset = () => setLtv(preset.ltvBps, preset.cycles);
   const applyRecommended = () => recommendedBps && setLtv(recommendedBps, preset.cycles);
 
@@ -536,17 +569,17 @@ function StrategyPanel({
             <Btn onClick={migrateATokens} disabled={isPending}>Migrate aTokens</Btn>
           )}
           <Btn onClick={applyPreset} disabled={isPending}>Apply {preset.label}</Btn>
-          <Btn onClick={() => w("leverageFlash")} disabled={isPending} primary>Flash leverage</Btn>
-          <Btn onClick={() => w("leverage")} disabled={isPending}>Leverage (loop)</Btn>
-          {version === "v1" && <Btn onClick={() => w("harvestAndRepay")} disabled={isPending}>Harvest</Btn>}
-          {version === "v2" && <Btn onClick={() => w("rebalance", [0n])} disabled={isPending}>Rebalance</Btn>}
+          <Btn onClick={() => w("Flash leverage", "leverageFlash")} disabled={isPending} primary>Flash leverage</Btn>
+          <Btn onClick={() => w("Leverage", "leverage")} disabled={isPending}>Leverage (loop)</Btn>
+          {version === "v1" && <Btn onClick={() => w("Harvest", "harvestAndRepay")} disabled={isPending}>Harvest</Btn>}
+          {version === "v2" && <Btn onClick={() => w("Rebalance", "rebalance", [0n])} disabled={isPending}>Rebalance</Btn>}
           {version === "v1" ? (
-            <Btn onClick={() => w("deleverageFlash")} disabled={isPending}>Flash unwind</Btn>
+            <Btn onClick={() => w("Flash unwind", "deleverageFlash")} disabled={isPending}>Flash unwind</Btn>
           ) : (
-            <Btn onClick={() => w("deleverage", [2n ** 256n - 1n])} disabled={isPending}>Deleverage</Btn>
+            <Btn onClick={() => w("Deleverage", "deleverage", [2n ** 256n - 1n])} disabled={isPending}>Deleverage</Btn>
           )}
-          <Btn onClick={() => w("guard")} disabled={isPending}>Guard</Btn>
-          <Btn onClick={() => w("emergencyUnwind")} disabled={isPending} danger>Emergency unwind</Btn>
+          <Btn onClick={() => w("Guard", "guard")} disabled={isPending}>Guard</Btn>
+          <Btn onClick={() => w("Emergency unwind", "emergencyUnwind")} disabled={isPending} danger>Emergency unwind</Btn>
         </div>
       )}
       {!readOnly && (

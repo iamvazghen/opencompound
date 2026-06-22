@@ -1,14 +1,16 @@
 // Network + contract addresses. Vault address comes from env after you deploy
 // (see contracts/ deploy script). Zero-address fallback => dashboard shows
 // "not deployed on this network" instead of crashing.
-import { sepolia, baseSepolia } from "@reown/appkit/networks";
+import { sepolia, baseSepolia, base, mainnet } from "@reown/appkit/networks";
 
 export const ZERO = "0x0000000000000000000000000000000000000000" as const;
 
-// Aave V3 Pool per testnet (official deployments).
+// Aave V3 Pool per chain (official deployments) — testnets + mainnets.
 export const AAVE_POOL: Record<number, `0x${string}`> = {
   [sepolia.id]: "0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951",
   [baseSepolia.id]: "0x07eA79F68B2B3df564D0A34F8e19D9B1e339814b",
+  [base.id]: "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
+  [mainnet.id]: "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
 };
 
 export type VaultVersion = "v1" | "v2";
@@ -19,6 +21,7 @@ export type VaultVersion = "v1" | "v2";
 export type V1Market = { symbol: string; asset: `0x${string}`; vault: `0x${string}`; decimals: number };
 
 export const V1_MARKETS: Record<number, V1Market[]> = {
+  // Mainnet markets ([base.id], [mainnet.id]) get added here once their vaults are deployed.
   [baseSepolia.id]: [
     {
       symbol: "WETH",
@@ -53,16 +56,27 @@ export function aavePool(chainId: number): `0x${string}` {
   return AAVE_POOL[chainId] || ZERO;
 }
 
-export const SUPPORTED = [sepolia, baseSepolia] as const;
+export const SUPPORTED = [base, mainnet, baseSepolia, sepolia] as const;
 
+const EXPLORER: Record<number, string> = {
+  [base.id]: "https://basescan.org",
+  [mainnet.id]: "https://etherscan.io",
+  [baseSepolia.id]: "https://sepolia.basescan.org",
+  [sepolia.id]: "https://sepolia.etherscan.io",
+};
 export function explorerBase(chainId: number): string {
-  return chainId === baseSepolia.id ? "https://sepolia.basescan.org" : "https://sepolia.etherscan.io";
+  return EXPLORER[chainId] ?? "https://etherscan.io";
 }
 
-// Aave's testnet app, deep-linked to the right market. Note: Aave shows the CONNECTED
-// wallet's position — the vault's position lives under the vault address, so verify the
-// vault on the block explorer (its aToken / debt-token holdings) rather than via Aave's UI.
+// Aave's app, deep-linked to the right market. Note: Aave shows the CONNECTED wallet's position —
+// the vault's position lives under the vault address, so verify the vault on the block explorer
+// (its aToken / debt-token holdings) rather than via Aave's UI.
+const AAVE_MARKET: Record<number, string> = {
+  [base.id]: "proto_base_v3",
+  [mainnet.id]: "proto_mainnet_v3",
+  [baseSepolia.id]: "proto_base_sepolia_v3",
+  [sepolia.id]: "proto_sepolia_v3",
+};
 export function aaveMarketUrl(chainId: number): string {
-  const market = chainId === baseSepolia.id ? "proto_base_sepolia_v3" : "proto_sepolia_v3";
-  return `https://app.aave.com/?marketName=${market}`;
+  return `https://app.aave.com/?marketName=${AAVE_MARKET[chainId] ?? "proto_mainnet_v3"}`;
 }

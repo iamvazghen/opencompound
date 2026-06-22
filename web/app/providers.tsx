@@ -2,38 +2,43 @@
 
 import { createAppKit } from "@reown/appkit/react";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
-import { sepolia, baseSepolia, type AppKitNetwork } from "@reown/appkit/networks";
+import { sepolia, baseSepolia, base, mainnet, type AppKitNetwork } from "@reown/appkit/networks";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider, cookieStorage, cookieToInitialState, createStorage, http, type Config } from "wagmi";
+import { ToastProvider } from "@/components/Toast";
 
-// projectId is PUBLIC (ships in every dApp bundle, domain-restricted in the Reown dashboard).
+// projectId is PUBLIC (ships in every dApp bundle). Restrict it to your domain(s) in the Reown
+// dashboard (Settings → Allowed domains) — that, not secrecy, is what stops other origins reusing it.
 const projectId =
   process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "ca22014226fa6fc1795ff48b236accaf";
 
-const networks: [AppKitNetwork, ...AppKitNetwork[]] = [sepolia, baseSepolia];
+// One deployment runs in ONE mode. Testnet (default) = Base/Eth Sepolia, wallet Swap/Activity OFF
+// (Reown's Blockchain API doesn't serve testnets → those features 400). Mainnet = Base/Eth, features
+// ON. Flip with NEXT_PUBLIC_NETWORK_MODE=mainnet once mainnet vaults are deployed.
+const MAINNET = process.env.NEXT_PUBLIC_NETWORK_MODE === "mainnet";
 
-// Use our OWN RPC endpoints, not Reown's Blockchain API. The default routes chain reads
-// (balances, contract calls) through Reown's API keyed by projectId — which returns HTTP 400
-// when the project isn't provisioned for that chain, leaving the wallet button stuck loading.
-// Pointing transports + customRpcUrls at a real RPC fixes the 400s and the spinner.
-const BASE_SEPOLIA_RPC =
-  process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC ||
-  "https://base-sepolia.g.alchemy.com/v2/AJiObGP0fK8EArUzVjOoN";
-const SEPOLIA_RPC =
-  process.env.NEXT_PUBLIC_SEPOLIA_RPC || "https://ethereum-sepolia-rpc.publicnode.com";
+const networks = (MAINNET ? [base, mainnet] : [baseSepolia, sepolia]) as [AppKitNetwork, ...AppKitNetwork[]];
 
+// All chain reads go through our own /api/rpc/<id> proxy, which injects a SERVER-ONLY Alchemy key
+// (never in the client bundle) and is the place to add rate-limiting later. This also keeps reads off
+// Reown's Blockchain API, which 400s on chains the project isn't provisioned for.
+const rpc = (id: number) => `/api/rpc/${id}`;
 const wagmiAdapter = new WagmiAdapter({
   networks,
   projectId,
   ssr: true,
   storage: createStorage({ storage: cookieStorage }),
   transports: {
-    [baseSepolia.id]: http(BASE_SEPOLIA_RPC),
-    [sepolia.id]: http(SEPOLIA_RPC),
+    [base.id]: http(rpc(base.id)),
+    [mainnet.id]: http(rpc(mainnet.id)),
+    [baseSepolia.id]: http(rpc(baseSepolia.id)),
+    [sepolia.id]: http(rpc(sepolia.id)),
   },
   customRpcUrls: {
-    "eip155:84532": [{ url: BASE_SEPOLIA_RPC }],
-    "eip155:11155111": [{ url: SEPOLIA_RPC }],
+    "eip155:8453": [{ url: rpc(base.id) }],
+    "eip155:1": [{ url: rpc(mainnet.id) }],
+    "eip155:84532": [{ url: rpc(baseSepolia.id) }],
+    "eip155:11155111": [{ url: rpc(sepolia.id) }],
   },
 });
 
@@ -47,17 +52,16 @@ createAppKit({
     url: typeof window !== "undefined" ? window.location.origin : "https://opencompound.app",
     icons: ["https://opencompound.app/favicon.ico"],
   },
-  // Disable the modal features that call Reown's Blockchain API for token prices / history —
-  // that API doesn't serve testnets, so Swap / Activity / Buy / Send return HTTP 400. We only
-  // need connect + account here, so turn them off (kills the AppKitError 400s).
+  // Chain-conditional: the Blockchain-API-backed features (token prices / history) only work on
+  // mainnets, so they're ON in mainnet mode and OFF on testnets (where they'd return HTTP 400).
   features: {
     analytics: false,
     email: false,
     socials: [],
-    swaps: false,
-    onramp: false,
-    history: false,
-    send: false,
+    swaps: MAINNET,
+    onramp: MAINNET,
+    history: MAINNET,
+    send: MAINNET,
   },
   themeMode: "dark",
   themeVariables: {
@@ -73,7 +77,9 @@ export function Providers({ children, cookies }: { children: React.ReactNode; co
   const initialState = cookieToInitialState(wagmiAdapter.wagmiConfig as Config, cookies);
   return (
     <WagmiProvider config={wagmiAdapter.wagmiConfig as Config} initialState={initialState}>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>{children}</ToastProvider>
+      </QueryClientProvider>
     </WagmiProvider>
   );
 }

@@ -83,21 +83,7 @@ export default function Landing() {
           </p>
         </section>
       </main>
-
-      {/* Ft5 — statement footer */}
-      <footer className="mx-auto mt-10 w-full max-w-5xl px-6 pb-12">
-        <div className="surface rounded-2xl p-8">
-          <p className="max-w-2xl font-display text-2xl leading-snug text-[var(--color-ink)]">
-            Educational / portfolio project. Not audited. Testnet only. Leveraged positions can be
-            liquidated. Not financial advice.
-          </p>
-          <div className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-sm text-[var(--color-ink-3)]">
-            <Link href="/strategies" className="hover:text-[var(--color-ink)]">Strategies</Link>
-            <Link href="/docs" className="hover:text-[var(--color-ink)]">Docs</Link>
-            <Link href="/app" className="hover:text-[var(--color-ink)]">Dashboard</Link>
-          </div>
-        </div>
-      </footer>
+      {/* Statement footer is mounted site-wide in the root layout (components/Footer). */}
     </>
   );
 }

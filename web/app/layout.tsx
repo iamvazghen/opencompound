@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
+import { Footer } from "@/components/Footer";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -43,6 +44,7 @@ export default async function RootLayout({
     >
       <body className="flex min-h-full flex-col" suppressHydrationWarning>
         <Providers cookies={cookies}>{children}</Providers>
+        <Footer />
       </body>
     </html>
   );
