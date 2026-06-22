@@ -84,11 +84,15 @@ contract MockPool is IPool {
         uint256 hf = debtBase == 0 ? type(uint256).max : (collBase * 9500 * 1e18) / (10_000 * debtBase);
         return (collBase, debtBase, 0, 9500, 9300, hf);
     }
+    uint256 public reserveConfig = (uint256(1) << 56); // active, uncapped
+    function setReserveConfig(uint256 c) external { reserveConfig = c; }
+
     function getReserveData(address asset) external view returns (ReserveDataLegacy memory r) {
         r.aTokenAddress = address(aTok[asset]);
         r.variableDebtTokenAddress = address(dTok[asset]);
         r.currentLiquidityRate = 0.03e27;
         r.currentVariableBorrowRate = 0.025e27;
+        r.configuration = reserveConfig;
     }
     function ADDRESSES_PROVIDER() external view returns (IPoolAddressesProvider) { return provider; }
 
@@ -212,6 +216,61 @@ contract YieldDifferentialVaultTest is Test {
         vault.guard();
         (, uint256 debtAfter,,,,) = poolMock.getUserAccountData(address(vault));
         assertLt(debtAfter, debtBefore, "guard repaid debt down toward target");
+    }
+
+    /// A depositor can fully exit a LEVERAGED v2 vault in one redeem (proportional flash-unwind
+    /// with the swap), leaving the remaining depositor's LTV unchanged.
+    function test_RedeemUnwindsProportionallyWhenLeveraged() public {
+        address other = address(0xB0B);
+        _deposit(1 ether); // user
+        wsteth.mint(other, 1 ether);
+        vm.startPrank(other);
+        wsteth.approve(address(vault), 1 ether);
+        vault.deposit(1 ether, other);
+        vm.stopPrank();
+
+        vault.leverageFlash();
+        (uint256 c0, uint256 d0,,,,) = poolMock.getUserAccountData(address(vault));
+        uint256 ltvBefore = (d0 * 10_000) / c0;
+        assertGt(ltvBefore, 7700, "leveraged");
+
+        uint256 shares = vault.balanceOf(user);
+        vm.prank(user);
+        vault.redeem(shares, user, user);
+
+        assertGt(wsteth.balanceOf(user), 0.95 ether, "got ~their wstETH equity back");
+        assertEq(vault.balanceOf(user), 0, "fully exited");
+        (uint256 c1, uint256 d1,,,,) = poolMock.getUserAccountData(address(vault));
+        assertApproxEqAbs((d1 * 10_000) / c1, ltvBefore, 20, "other's LTV untouched");
+    }
+
+    /// rebalance() enforces a minimum deadband: once at target, a second permissionless call is a
+    /// no-op, so a griefer can't spam swaps to bleed slippage.
+    function test_RebalanceMinDeadbandStopsSpam() public {
+        _deposit(1 ether);
+        vault.leverageFlash();
+        vault.rebalance(0); // snap to target
+        uint256 debtAtTarget = poolMock.dTok(address(weth)).balanceOf(address(vault));
+        vault.rebalance(0); // within the 50bps floor → must not swap again
+        assertEq(poolMock.dTok(address(weth)).balanceOf(address(vault)), debtAtTarget, "no spam rebalance");
+    }
+
+    /// A dead/zeroed oracle feed reverts rather than letting a swap clear at any price.
+    function test_ZeroOracleReverts() public {
+        _deposit(1 ether);
+        vault.leverage();
+        oracle.set(address(weth), 0); // feed goes down
+        vm.expectRevert(bytes("oracle price unavailable"));
+        vault.rebalance(0);
+    }
+
+    /// maxDeposit honors the collateral reserve's Aave supply cap.
+    function test_MaxDepositRespectsSupplyCap() public {
+        assertEq(vault.maxDeposit(user), type(uint256).max, "uncapped by default");
+        poolMock.setReserveConfig((uint256(1) << 56) | (uint256(50) << 116));
+        assertEq(vault.maxDeposit(user), 50 ether, "room under the cap");
+        _deposit(10 ether);
+        assertEq(vault.maxDeposit(user), 40 ether, "cap minus supplied");
     }
 
     function test_DeleverageReducesDebt() public {

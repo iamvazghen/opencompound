@@ -49,6 +49,10 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
     // Added to Aave's collateral supply rate to get the true effective yield for break-even.
     // Owner-set estimate (can't be read on-chain generically). Conservative default.
     uint256 public stakingYieldRay = 0.03e27;
+    // Floor on the rebalance deadband. rebalance() is permissionless, so without a minimum band a
+    // griefer could pass tolBps=0 and trigger a swap on every 1-wei LTV drift, bleeding the vault
+    // slippageBps per call. Every rebalance uses max(callerTol, minRebalanceBps). 50 = 0.50%.
+    uint256 public minRebalanceBps = 50;
 
     event Leveraged(uint256 cyclesRun, uint256 borrowedTotal, uint256 suppliedTotal);
     event Deleveraged(uint256 repaid);
@@ -93,6 +97,14 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
 
     // ───────────────────────────── ERC-4626 accounting ─────────────────────────────
 
+    /// @dev Virtual-shares offset (OZ ERC-4626 inflation-attack mitigation). 10**6 virtual shares +
+    ///      1 virtual asset per conversion makes the first-depositor inflation / donation front-run
+    ///      attack cost ~1e6x the victim deposit and bounds the `aCollateral.balanceOf` donation
+    ///      vector in totalAssets(). Canonical, audited fix — no custom accounting.
+    function _decimalsOffset() internal pure override returns (uint8) {
+        return 6;
+    }
+
     /// @notice Net equity in COLLATERAL units: collateral balance minus debt valued in collateral.
     function totalAssets() public view override returns (uint256) {
         uint256 collateral = aCollateral.balanceOf(address(this));
@@ -100,19 +112,64 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
         return collateral > debtInColl ? collateral - debtInColl : 0;
     }
 
+    // Aave V3 ReserveConfiguration bit layout (aave-v3-core ReserveConfiguration.sol).
+    uint256 private constant ACTIVE_BIT = 56;
+    uint256 private constant FROZEN_BIT = 57;
+    uint256 private constant PAUSED_BIT = 60;
+    uint256 private constant SUPPLY_CAP_BIT = 116;
+    uint256 private constant SUPPLY_CAP_MASK = 0xFFFFFFFFF;
+
+    /// @notice Deposit cap honoring Aave on the COLLATERAL reserve (pattern from aave/aave-vault):
+    ///         0 if paused / inactive / frozen, room under the supply cap otherwise (uncapped ⇒
+    ///         max). deposit()/mint() then revert up-front instead of failing inside Aave.
+    function maxDeposit(address) public view override returns (uint256) {
+        if (paused()) return 0;
+        uint256 config = pool.getReserveData(asset()).configuration;
+        if (((config >> ACTIVE_BIT) & 1) == 0) return 0;
+        if (((config >> FROZEN_BIT) & 1) == 1) return 0;
+        if (((config >> PAUSED_BIT) & 1) == 1) return 0;
+        uint256 cap = (config >> SUPPLY_CAP_BIT) & SUPPLY_CAP_MASK;
+        if (cap == 0) return type(uint256).max;
+        uint256 capWei = cap * (10 ** IERC20Metadata(asset()).decimals());
+        uint256 current = aCollateral.totalSupply();
+        return capWei > current ? capWei - current : 0;
+    }
+
+    function maxMint(address receiver) public view override returns (uint256) {
+        uint256 m = maxDeposit(receiver);
+        return m == type(uint256).max ? type(uint256).max : convertToShares(m);
+    }
+
     function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal override {
         super._deposit(caller, receiver, assets, shares);
         pool.supply(asset(), assets, address(this), 0);
     }
 
+    /// @dev Withdraw / redeem. When leveraged, unwind the caller's PROPORTIONAL slice of both
+    ///      collateral and debt via a flash loan (flash the debt asset, repay the debt slice,
+    ///      withdraw the collateral slice, swap just enough to repay the flash, send the rest) — so
+    ///      remaining depositors' LTV is untouched and any holder can exit regardless of leverage.
+    ///      Caller bears the ~flash premium + swap slippage on their slice. Unlevered ⇒ plain withdraw.
     function _withdraw(address caller, address receiver, address owner, uint256 assets, uint256 shares)
         internal
         override
     {
         if (caller != owner) _spendAllowance(owner, caller, shares);
+        uint256 supply = totalSupply(); // pre-burn basis, matches previewRedeem
+        uint256 coll = aCollateral.balanceOf(address(this));
+        uint256 debt = vDebt.balanceOf(address(this));
         _burn(owner, shares);
-        pool.withdraw(asset(), assets, address(this)); // Aave reverts if it breaks health factor
-        IERC20(asset()).safeTransfer(receiver, assets);
+
+        if (debt == 0) {
+            pool.withdraw(asset(), assets, address(this));
+            IERC20(asset()).safeTransfer(receiver, assets);
+        } else {
+            uint256 collSlice = (coll * shares) / supply;
+            uint256 debtSlice = (debt * shares) / supply;
+            pool.flashLoanSimple(
+                address(this), address(debtAsset), debtSlice, abi.encode(FLASH_REDEEM, collSlice, receiver), 0
+            );
+        }
         emit Withdraw(caller, receiver, owner, assets, shares);
     }
 
@@ -147,6 +204,9 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
     // N swaps / cycle-limited ~83–90% of target. Pattern from Alchemix AutoleverageBase, adapted
     // so the vault flash-loans to ITSELF (it already holds the Aave position). See REFINEMENTS.md.
 
+    uint8 private constant FLASH_LEVER = 0;
+    uint8 private constant FLASH_REDEEM = 1;
+
     /// @notice Leverage to `targetLtvBps` in a single transaction via an Aave flash loan.
     ///         Only valid from an unlevered position (no debt); use `leverage()` to top up.
     function leverageFlash() external whenNotPaused nonReentrant onlyOwner {
@@ -163,7 +223,7 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
         // flash premium (~9bps) + swap slippage so repayment always clears.
         uint256 flashColl = (((targetDebtBase * 1e18) / pc) * (BPS - slippageBps - 20)) / BPS;
 
-        pool.flashLoanSimple(address(this), asset(), flashColl, abi.encode(borrowAmt), 0);
+        pool.flashLoanSimple(address(this), asset(), flashColl, abi.encode(FLASH_LEVER, borrowAmt), 0);
     }
 
     /// @inheritdoc IFlashLoanSimpleReceiver
@@ -175,19 +235,31 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
     {
         require(msg.sender == address(pool), "caller not pool");
         require(initiator == address(this), "initiator not self");
-
-        uint256 borrowAmt = abi.decode(params, (uint256));
         uint256 pc = _price(asset());
         uint256 pd = _price(address(debtAsset));
-
-        pool.supply(asset_, amount, address(this), 0); // supply the flashed collateral
-        pool.borrow(address(debtAsset), borrowAmt, VARIABLE_RATE, 0, address(this));
-        uint256 received = _swap(address(debtAsset), asset_, borrowAmt, pd, pc); // WETH → wstETH
-
         uint256 owed = amount + premium;
-        require(received >= owed, "swap shortfall vs flash repay");
-        if (received > owed) pool.supply(asset_, received - owed, address(this), 0); // re-supply excess
-        // Pool pulls `owed` from us; collateral is already max-approved to the pool.
+
+        if (abi.decode(params, (uint8)) == FLASH_LEVER) {
+            // asset_ == collateral. Supply the flashed collateral, borrow the debt, swap back.
+            (, uint256 borrowAmt) = abi.decode(params, (uint8, uint256));
+            pool.supply(asset_, amount, address(this), 0);
+            pool.borrow(address(debtAsset), borrowAmt, VARIABLE_RATE, 0, address(this));
+            uint256 received = _swap(address(debtAsset), asset_, borrowAmt, pd, pc); // WETH → wstETH
+            require(received >= owed, "swap shortfall vs flash repay");
+            if (received > owed) pool.supply(asset_, received - owed, address(this), 0); // re-supply excess
+        } else {
+            // FLASH_REDEEM: asset_ == debt asset. Repay the caller's debt slice, withdraw their
+            // collateral slice, swap just enough collateral to cover the flash repay, send the rest.
+            (, uint256 collSlice, address receiver) = abi.decode(params, (uint8, uint256, address));
+            pool.repay(address(debtAsset), amount, VARIABLE_RATE, address(this));
+            pool.withdraw(asset(), collSlice, address(this)); // collateral (wstETH) to this
+            uint256 collForOwed = (((owed * pd) / pc) * (BPS + slippageBps)) / BPS; // pad for slippage
+            if (collForOwed > collSlice) collForOwed = collSlice;
+            uint256 got = _swap(asset(), address(debtAsset), collForOwed, pc, pd); // wstETH → WETH
+            require(got >= owed, "swap shortfall vs flash repay");
+            IERC20(asset()).safeTransfer(receiver, collSlice - collForOwed); // un-sold collateral to caller
+        }
+        // Pool pulls `owed` of the flashed asset from us (max-approved). Any swap dust stays in-vault.
         return true;
     }
 
@@ -238,6 +310,8 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
     ///         rose / collateral fell) it deleverages; if BELOW (collateral appreciated) it
     ///         re-levers one step toward target. Keeper-callable. `tolBps` is a no-op deadband.
     function rebalance(uint256 tolBps) external whenNotPaused nonReentrant {
+        // Enforce a minimum deadband so permissionless callers can't spam slippage-bleeding swaps.
+        if (tolBps < minRebalanceBps) tolBps = minRebalanceBps;
         (uint256 collBase, uint256 debtBase,,,,) = pool.getUserAccountData(address(this));
         if (collBase == 0) return;
         uint256 ltv = (debtBase * BPS) / collBase;
@@ -332,8 +406,13 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
         return (debtAmt * _price(address(debtAsset))) / _price(asset());
     }
 
-    function _price(address token) internal view returns (uint256) {
-        return IPriceOracleGetter(pool.ADDRESSES_PROVIDER().getPriceOracle()).getAssetPrice(token);
+    /// @dev Aave (Chainlink) oracle price, base currency 8dp. Reverts on a zero/unavailable feed —
+    ///      a 0 price would make swap min-out math collapse to 0 and let a swap clear at any price.
+    ///      Sandwich loss on the swap itself is already bounded to slippageBps by the oracle-derived
+    ///      amountOutMinimum in _swap (independent of the manipulable pool spot), so no TWAP needed.
+    function _price(address token) internal view returns (uint256 p) {
+        p = IPriceOracleGetter(pool.ADDRESSES_PROVIDER().getPriceOracle()).getAssetPrice(token);
+        require(p > 0, "oracle price unavailable");
     }
 
     /// @dev Swap exact `amountIn` of `tokenIn` for `tokenOut`, with min-out derived from the
@@ -379,6 +458,13 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
 
     function setEMode(uint8 categoryId) external onlyOwner {
         pool.setUserEMode(categoryId);
+    }
+
+    /// @notice Set the minimum rebalance deadband (bps). Caps how tight a permissionless caller can
+    ///         force a rebalance, so swaps can't be spammed to bleed slippage. Bounded to ≤ 10%.
+    function setMinRebalanceBps(uint256 minRebalanceBps_) external onlyOwner {
+        require(minRebalanceBps_ <= 1_000, "band too wide");
+        minRebalanceBps = minRebalanceBps_;
     }
 
     /// @notice Update the external staking-yield estimate (ray APR) used in break-even math.

@@ -75,11 +75,51 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
 
     // ───────────────────────────── ERC-4626 accounting ─────────────────────────────
 
+    /// @dev Virtual-shares offset (OZ ERC-4626 inflation-attack mitigation). Adds 10**6 virtual
+    ///      shares + 1 virtual asset to every conversion, so the first-depositor inflation /
+    ///      donation front-run attack costs the attacker ~1e6x the victim's deposit to round it to
+    ///      zero shares — economically infeasible. This also neutralizes the `aToken.balanceOf`
+    ///      donation vector in totalAssets(): a direct aToken gift can only nudge the share price by
+    ///      a factor bounded by the virtual shares, never zero out a depositor. Canonical, audited
+    ///      fix — no custom internal accounting needed.
+    function _decimalsOffset() internal pure override returns (uint8) {
+        return 6;
+    }
+
     /// @notice Net equity in underlying units: supplied collateral minus outstanding debt.
     function totalAssets() public view override returns (uint256) {
         uint256 collateral = aToken.balanceOf(address(this));
         uint256 debt = variableDebtToken.balanceOf(address(this));
         return collateral > debt ? collateral - debt : 0;
+    }
+
+    // Aave V3 ReserveConfiguration bit layout (aave-v3-core ReserveConfiguration.sol).
+    uint256 private constant ACTIVE_BIT = 56;
+    uint256 private constant FROZEN_BIT = 57;
+    uint256 private constant PAUSED_BIT = 60;
+    uint256 private constant SUPPLY_CAP_BIT = 116;
+    uint256 private constant SUPPLY_CAP_MASK = 0xFFFFFFFFF; // 36 bits, value is in whole tokens
+
+    /// @notice Deposit cap honoring Aave (pattern from aave/aave-vault): 0 if the vault is paused or
+    ///         the reserve is inactive / frozen / paused, the room left under the reserve's supply
+    ///         cap otherwise (uncapped ⇒ max). Makes deposit()/mint() revert up-front with a clear
+    ///         ERC-4626 error instead of failing deep inside Aave on a hit cap or frozen reserve.
+    function maxDeposit(address) public view override returns (uint256) {
+        if (paused()) return 0;
+        uint256 config = pool.getReserveData(asset()).configuration;
+        if (((config >> ACTIVE_BIT) & 1) == 0) return 0;
+        if (((config >> FROZEN_BIT) & 1) == 1) return 0;
+        if (((config >> PAUSED_BIT) & 1) == 1) return 0;
+        uint256 cap = (config >> SUPPLY_CAP_BIT) & SUPPLY_CAP_MASK;
+        if (cap == 0) return type(uint256).max;
+        uint256 capWei = cap * (10 ** IERC20Metadata(asset()).decimals());
+        uint256 current = aToken.totalSupply();
+        return capWei > current ? capWei - current : 0;
+    }
+
+    function maxMint(address receiver) public view override returns (uint256) {
+        uint256 m = maxDeposit(receiver);
+        return m == type(uint256).max ? type(uint256).max : convertToShares(m);
     }
 
     /// @dev On deposit, supply the freshly received underlying straight to Aave.
@@ -106,24 +146,34 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
         emit Deposit(msg.sender, receiver, aTokenAmount, shares);
     }
 
-    /// @dev On withdraw, pull from Aave. Aave reverts if this would break the health
-    ///      factor, so a leveraged user must `deleverage()` enough first. ponytail:
-    ///      no proportional auto-unwind yet — Aave's HF check is the safety net.
+    /// @dev Withdraw / redeem. When the vault carries debt (leveraged), pull the caller's
+    ///      PROPORTIONAL slice of BOTH collateral and debt via a flash loan — so remaining
+    ///      depositors' LTV is untouched and any holder can exit regardless of leverage (no manual
+    ///      deleverage first). Same-asset ⇒ no swap; the caller bears the ~flash premium on their
+    ///      slice (same trade-off as leverageFlash). Unlevered ⇒ the plain Aave withdraw.
     function _withdraw(address caller, address receiver, address owner, uint256 assets, uint256 shares)
         internal
         override
     {
-        _burnSharesAndCheck(caller, owner, shares);
-        pool.withdraw(asset(), assets, address(this));
-        IERC20(asset()).safeTransfer(receiver, assets);
-        emit Withdraw(caller, receiver, owner, assets, shares);
-    }
-
-    function _burnSharesAndCheck(address caller, address owner, uint256 shares) private {
-        if (caller != owner) {
-            _spendAllowance(owner, caller, shares);
-        }
+        if (caller != owner) _spendAllowance(owner, caller, shares);
+        uint256 supply = totalSupply(); // read pre-burn — same basis as previewRedeem
+        uint256 coll = aToken.balanceOf(address(this));
+        uint256 debt = variableDebtToken.balanceOf(address(this));
         _burn(owner, shares);
+
+        if (debt == 0) {
+            pool.withdraw(asset(), assets, address(this));
+            IERC20(asset()).safeTransfer(receiver, assets);
+        } else {
+            // Caller's slice of the leveraged position. Flash-borrow the debt slice, repay it,
+            // withdraw the collateral slice, hand the net (≈ assets − premium) to the receiver.
+            uint256 collSlice = (coll * shares) / supply;
+            uint256 debtSlice = (debt * shares) / supply;
+            pool.flashLoanSimple(
+                address(this), asset(), debtSlice, abi.encode(FLASH_REDEEM, collSlice, receiver), 0
+            );
+        }
+        emit Withdraw(caller, receiver, owner, assets, shares);
     }
 
     // ───────────────────────────── Leverage mode ─────────────────────────────
@@ -175,6 +225,7 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
 
     uint8 private constant FLASH_LEVER = 0;
     uint8 private constant FLASH_UNWIND = 1;
+    uint8 private constant FLASH_REDEEM = 2;
 
     /// @notice Leverage to the exact target LTV in a single transaction. Unlevered start only.
     function leverageFlash() external whenNotPaused nonReentrant onlyOwner {
@@ -243,15 +294,24 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
         require(msg.sender == address(pool), "caller not pool");
         require(initiator == address(this), "initiator not self");
         uint256 owed = amount + premium;
+        uint8 mode = abi.decode(params, (uint8));
 
-        if (abi.decode(params, (uint8)) == FLASH_LEVER) {
+        if (mode == FLASH_LEVER) {
             // supply the flashed collateral, borrow what we owe back (same asset, no swap)
             pool.supply(asset_, amount, address(this), 0);
             pool.borrow(asset_, owed, VARIABLE_RATE, 0, address(this));
-        } else {
+        } else if (mode == FLASH_UNWIND) {
             // repay all debt, then withdraw the owed amount of now-freed collateral
             pool.repay(asset_, amount, VARIABLE_RATE, address(this));
             pool.withdraw(asset_, owed, address(this));
+        } else {
+            // FLASH_REDEEM: repay the caller's debt slice, withdraw their collateral slice, send the
+            // net to the receiver, and leave exactly `owed` for the pool to pull for flash repay.
+            (, uint256 collSlice, address receiver) = abi.decode(params, (uint8, uint256, address));
+            pool.repay(asset_, amount, VARIABLE_RATE, address(this));
+            pool.withdraw(asset_, collSlice, address(this));
+            require(collSlice > owed, "redeem dust < flash premium");
+            IERC20(asset_).safeTransfer(receiver, collSlice - owed);
         }
         return true; // collateral already max-approved to the pool, which pulls `owed`
     }

@@ -70,12 +70,16 @@ contract MockPool is IPool {
         return (c, d, 0, 8000, 8000, hf);
     }
 
+    uint256 public reserveConfig = (uint256(1) << 56); // active, not frozen/paused, uncapped
+    function setReserveConfig(uint256 c) external { reserveConfig = c; }
+
     function getReserveData(address) external view returns (ReserveDataLegacy memory r) {
         r.aTokenAddress = address(aToken);
         r.variableDebtTokenAddress = address(debtToken);
         // Realistic single-asset spread: supply 2% < borrow 3.5% (ray = 1e27).
         r.currentLiquidityRate = 0.02e27;
         r.currentVariableBorrowRate = 0.035e27;
+        r.configuration = reserveConfig;
     }
 
     function ADDRESSES_PROVIDER() external pure returns (IPoolAddressesProvider) {
@@ -119,7 +123,33 @@ contract LeveragedSelfRepayingVaultTest is Test {
         _deposit(1 ether);
         assertEq(poolMock.aToken().balanceOf(address(vault)), 1 ether, "collateral supplied");
         assertEq(vault.totalAssets(), 1 ether, "net equity == deposit");
-        assertEq(vault.balanceOf(user), 1 ether, "shares minted 1:1");
+        // Shares carry a 1e6 virtual offset, so assert redeemable value, not raw count.
+        assertApproxEqAbs(vault.convertToAssets(vault.balanceOf(user)), 1 ether, 1, "shares worth the deposit");
+    }
+
+    /// First-depositor inflation / donation front-run is defeated by the 1e6 virtual-shares
+    /// offset: even after the attacker donates 1000x the victim's deposit, the victim still mints
+    /// a fair, non-zero share of the pool (pre-offset this rounded the victim to 0 shares).
+    function test_InflationAttackMitigated() public {
+        address attacker = address(0xBAD);
+        address victim = address(0x71C);
+
+        // Attacker seeds 1 wei, then donates 1000 ETH of aTokens straight to the vault.
+        underlying.mint(attacker, 1);
+        vm.startPrank(attacker);
+        underlying.approve(address(vault), 1);
+        vault.deposit(1, attacker);
+        vm.stopPrank();
+        poolMock.aToken().mint(address(vault), 1000 ether); // donation to inflate share price
+
+        // Victim deposits 1 ETH and must still receive shares worth ~1 ETH back.
+        underlying.mint(victim, 1 ether);
+        vm.startPrank(victim);
+        underlying.approve(address(vault), 1 ether);
+        uint256 shares = vault.deposit(1 ether, victim);
+        vm.stopPrank();
+        assertGt(shares, 0, "victim not rounded to zero shares");
+        assertGt(vault.convertToAssets(shares), 0.99 ether, "victim keeps ~all of their value");
     }
 
     /// 70% LTV, 4 cycles on 1e18: geometric sum 0.7+0.49+0.343+0.2401 = 1.7731e18 debt.
@@ -233,9 +263,56 @@ contract LeveragedSelfRepayingVaultTest is Test {
         poolMock.aToken().approve(address(vault), 1 ether);
         uint256 shares = vault.depositAToken(1 ether, user); // brings the aTokens into the vault
         vm.stopPrank();
-        assertEq(shares, 1 ether, "shares for migrated collateral");
-        assertEq(vault.balanceOf(user), 1 ether);
+        assertGt(shares, 0, "shares for migrated collateral");
+        assertApproxEqAbs(vault.convertToAssets(shares), 1 ether, 2, "migrated collateral worth ~1 ETH");
         assertApproxEqAbs(vault.totalAssets(), 1 ether, 2);
+    }
+
+    /// A depositor can fully exit a LEVERAGED vault in one redeem (proportional flash-unwind),
+    /// and doing so leaves the remaining depositor's LTV unchanged — risk isn't shifted onto them.
+    function test_RedeemUnwindsProportionallyWhenLeveraged() public {
+        address other = address(0xB0B);
+        _deposit(1 ether); // `user` deposits 1
+        underlying.mint(other, 1 ether); // `other` deposits 1
+        vm.startPrank(other);
+        underlying.approve(address(vault), 1 ether);
+        vault.deposit(1 ether, other);
+        vm.stopPrank();
+
+        vault.leverageFlash(); // lever the pooled 2 ETH to ~70%
+        uint256 ltvBefore = vault.currentLtvBps();
+        assertGt(ltvBefore, 6900, "leveraged");
+
+        // `user` redeems ALL shares while leveraged — would revert on a naive pool.withdraw.
+        uint256 shares = vault.balanceOf(user);
+        vm.prank(user);
+        uint256 got = vault.redeem(shares, user, user);
+
+        assertGt(underlying.balanceOf(user), 0, "received funds");
+        assertApproxEqAbs(got, 1 ether, 3e15, "~ their 1 ETH equity (minus flash premium)");
+        assertEq(vault.balanceOf(user), 0, "fully exited");
+        // The remaining depositor's leverage is unchanged (collateral & debt fell proportionally).
+        assertApproxEqAbs(vault.currentLtvBps(), ltvBefore, 5, "other's LTV untouched");
+        assertApproxEqAbs(vault.totalAssets(), 1 ether, 3e15, "~ 1 ETH equity left for `other`");
+    }
+
+    /// maxDeposit honors the Aave supply cap (aave-vault pattern) so deposits revert up-front.
+    function test_MaxDepositRespectsAaveSupplyCap() public {
+        assertEq(vault.maxDeposit(user), type(uint256).max, "uncapped by default");
+        poolMock.setReserveConfig((uint256(1) << 56) | (uint256(100) << 116)); // active, cap 100
+        assertEq(vault.maxDeposit(user), 100 ether, "room under the cap");
+        _deposit(40 ether);
+        assertEq(vault.maxDeposit(user), 60 ether, "cap minus supplied");
+
+        underlying.mint(user, 100 ether);
+        vm.startPrank(user);
+        underlying.approve(address(vault), 100 ether);
+        vm.expectRevert(); // ERC4626ExceededMaxDeposit — clean revert before touching Aave
+        vault.deposit(61 ether, user);
+        vm.stopPrank();
+
+        poolMock.setReserveConfig(uint256(1) << 57); // frozen
+        assertEq(vault.maxDeposit(user), 0, "frozen reserve takes no deposits");
     }
 
     function test_SetStrategyRejectsAboveCeilings() public {
