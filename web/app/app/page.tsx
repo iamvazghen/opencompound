@@ -97,6 +97,13 @@ export default function Dashboard() {
     if (isAddress(watchInput.trim())) setWatchAddress(watchInput.trim() as `0x${string}`);
   };
 
+  // Refresh every on-chain read after a transaction confirms, so the dashboard stops going stale.
+  const refetchAll = () => {
+    vaultReads.refetch();
+    userVault.refetch();
+    aave.refetch();
+  };
+
   // Render a stable shell until mounted so the first client paint matches the server
   // (wallet connection state is only known client-side → otherwise a hydration mismatch).
   const [mounted, setMounted] = useState(false);
@@ -282,6 +289,7 @@ export default function Dashboard() {
           supplyPct={signal.supplyPct}
           borrowPct={signal.borrowPct}
           readOnly={readOnly}
+          onUpdated={refetchAll}
         />
 
         {vaultLive && (
@@ -370,6 +378,7 @@ function StrategyPanel({
   supplyPct,
   borrowPct,
   readOnly,
+  onUpdated,
 }: {
   version: VaultVersion;
   vault: `0x${string}`;
@@ -384,6 +393,7 @@ function StrategyPanel({
   supplyPct?: number;
   borrowPct?: number;
   readOnly: boolean;
+  onUpdated: () => void;
 }) {
   const { address } = useAccount();
   const chainId = useChainId();
@@ -394,12 +404,15 @@ function StrategyPanel({
   const isPending = busy;
 
   // Run one or more writes with toasts; `busy` disables the action buttons until they settle.
+  // After they settle, refetch the on-chain reads so the dashboard (and the recommended-LTV
+  // banner) reflect the new state instead of going stale.
   const act = async (steps: () => Promise<void>) => {
     setBusy(true);
     try {
       await steps();
     } finally {
       setBusy(false);
+      onUpdated();
     }
   };
 
@@ -410,6 +423,11 @@ function StrategyPanel({
   const presetCarry = carryAt(preset.ltvBps);
   const selfRepaying = breakEvenBps !== undefined && breakEvenBps > 0 && preset.ltvBps < breakEvenBps;
   const bleeds = breakEvenBps !== undefined && breakEvenBps > 0 && preset.ltvBps >= breakEvenBps;
+  // Only nudge the user when the vault's target LTV isn't already at the recommended value
+  // (within 0.5%). Once "Apply recommended" confirms and the reads refetch, targetLtvBps catches
+  // up to recommendedBps and the banner disappears on its own.
+  const recAvailable = recommendedBps !== undefined && recommendedBps > 0;
+  const recApplied = recAvailable && Math.abs(targetLtvBps - recommendedBps!) <= 50;
 
   // Single vault write, wrapped in a toast + receipt wait.
   const w = (label: string, functionName: string, args?: readonly unknown[]) =>
@@ -465,8 +483,8 @@ function StrategyPanel({
     <section className="surface mt-6 rounded-2xl p-6">
       <h2 className="text-lg">Strategy</h2>
 
-      {/* Live recommendation from current Aave rates */}
-      {recommendedBps ? (
+      {/* Live recommendation from current Aave rates — hidden once the target is already there */}
+      {recommendedBps && !recApplied ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/5 p-4">
           <div className="text-sm">
             <p className="text-[var(--color-ink)]">
@@ -486,6 +504,10 @@ function StrategyPanel({
           </div>
           <Btn onClick={applyRecommended} disabled={isPending} primary>Apply recommended</Btn>
         </div>
+      ) : recApplied ? (
+        <p className="mt-4 rounded-xl border border-[var(--color-positive)]/30 bg-[var(--color-positive)]/10 p-3 text-sm text-[var(--color-positive)]">
+          ✓ Target LTV is at the recommended {fmtPct(recommendedBps! / 100)} — no change needed.
+        </p>
       ) : null}
 
       {/* Risk presets — each annotated with its live net carry */}
