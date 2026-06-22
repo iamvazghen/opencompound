@@ -1,23 +1,26 @@
 # OpenCompound
 
-**Same-asset leveraged exposure + self-repaying mechanics on Aave V3.** An ERC-4626 vault, a wallet-connected dashboard that auto-detects your existing Aave positions, a landing page, and protocol docs.
+**Same-asset leverage + self-repaying vaults on Aave V3.** ERC-4626 vaults, a wallet-connected dashboard that auto-detects your existing Aave positions, a landing page, and protocol docs.
 
-> ⚠️ **Educational / portfolio project. NOT audited. Testnet only.** Leveraged DeFi positions can be liquidated. Smart-contract bugs can lose funds. Not financial advice.
+🔗 **Live demo:** https://opencompound.vercel.app · **Source:** https://github.com/iamvazghen/opencompound
+
+> ⚠️ **Educational / portfolio project. NOT audited. Testnet only** (Base Sepolia + Ethereum Sepolia). Leveraged DeFi positions can be liquidated. Smart-contract bugs can lose funds. Not financial advice.
 
 ---
 
 ## The honest economics (read this first)
 
-The original pitch was: "supply ETH, borrow ETH, the supply interest pays the borrow interest with surplus left over." **That cannot work for a single asset.** On Aave, for any one asset the **borrow APY is always higher than the supply APY** — that spread is how suppliers and the protocol get paid. A same-asset loop is therefore **negative carry**: every block it costs you the spread. There is no surplus to harvest.
+A position is **self-repaying while its LTV stays below the break-even LTV = s / b** (supply rate ÷ borrow rate). Below that line, the yield earned on the (larger) collateral exceeds the interest paid on the (smaller) debt — net interest is positive and the loan pays itself down. Above it, the position bleeds. The dashboard plots this break-even live for any asset.
 
-"Self-repaying" only exists when there is a **yield differential**. OpenCompound ships in two stages:
+- **v1 — single-asset, self-repaying.** Supply X, borrow X, re-supply at a managed LTV. Same-asset means no net *price* exposure (collateral and debt cancel), but the rate spread still makes net interest **positive below break-even** — so it self-repays through LTV management, with Aave incentive rewards on top. It lets you draw liquidity against an asset you want to keep, with no taxable sale.
+- **v2 — yield-differential.** Supply a yield-bearing asset (wstETH), borrow its base (WETH) in e-mode. The staking yield beats the borrow cost, so the position carries positive and the debt self-repays as collateral outgrows it — the real leveraged-staking carry trade.
 
 | Mode | Collateral | Debt | Self-repay source | Status |
 |------|-----------|------|-------------------|--------|
-| **v1 — Leverage (single-asset)** | ETH | ETH | Harvested Aave **incentive rewards** routed to debt | ✅ contract built |
-| **v2 — Yield-differential** | wstETH (staking yield) | WETH | Staking yield > borrow cost in e-mode → real positive carry | 🔜 roadmap |
+| **v1 — single-asset** | any Aave asset | same asset | rate spread below break-even + incentive rewards | ✅ built · live on Base Sepolia · mainnet-fork tested |
+| **v2 — yield-differential** | wstETH | WETH | staking yield > borrow cost (e-mode) | ✅ built · mainnet-fork tested |
 
-v1 gives you the leverage loop and an honest reward-funded repay sink. v2 is where "self-repaying" pays for itself from yield. Both are documented as what they actually are — no marketing math.
+See **`FINANCIAL-REVIEW.md`** for the full math and **`DEPLOYMENT.md`** for deploying.
 
 ---
 

@@ -17,6 +17,14 @@ export function Footer() {
           <Link href="/deployment" className="hover:text-[var(--color-ink)]">Deployment</Link>
           <Link href="/risk" className="hover:text-[var(--color-ink)]">Risk disclosure</Link>
           <Link href="/terms" className="hover:text-[var(--color-ink)]">Terms</Link>
+          <a
+            href="https://github.com/iamvazghen/opencompound"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-[var(--color-ink)]"
+          >
+            GitHub ↗
+          </a>
         </div>
       </div>
     </footer>
