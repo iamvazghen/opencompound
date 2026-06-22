@@ -429,7 +429,6 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
                 tokenOut: tokenOut,
                 fee: poolFee,
                 recipient: address(this),
-                deadline: block.timestamp,
                 amountIn: amountIn,
                 amountOutMinimum: minOut,
                 sqrtPriceLimitX96: 0

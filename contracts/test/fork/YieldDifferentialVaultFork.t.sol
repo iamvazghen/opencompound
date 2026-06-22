@@ -20,8 +20,9 @@ contract YieldDifferentialVaultForkTest is Test {
     address constant AAVE_POOL = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
     address constant WSTETH = 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0;
     address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
-    // Classic Uniswap V3 SwapRouter (the one whose exactInputSingle struct carries `deadline`).
-    address constant UNISWAP_ROUTER = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
+    // Uniswap V3 SwapRouter02 on Ethereum mainnet (matches our deadline-free ISwapRouter; the same
+    // SwapRouter02 ABI is what's deployed on Base at 0x2626664c2603336E57B271c5C0b26F421741e481).
+    address constant UNISWAP_ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
     uint24 constant POOL_FEE = 100; // wstETH/WETH 0.01% pool
     uint8 constant EMODE_ETH = 1; // Aave ETH-correlated e-mode category
 
