@@ -14,6 +14,7 @@ export function Footer() {
           <Link href="/strategies" className="hover:text-[var(--color-ink)]">Strategies</Link>
           <Link href="/docs" className="hover:text-[var(--color-ink)]">Docs</Link>
           <Link href="/app" className="hover:text-[var(--color-ink)]">Dashboard</Link>
+          <Link href="/deployment" className="hover:text-[var(--color-ink)]">Deployment</Link>
           <Link href="/risk" className="hover:text-[var(--color-ink)]">Risk disclosure</Link>
           <Link href="/terms" className="hover:text-[var(--color-ink)]">Terms</Link>
         </div>

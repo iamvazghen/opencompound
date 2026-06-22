@@ -108,3 +108,15 @@ h1, h2, h3 {
   transition: background-size var(--dur-fast) var(--ease-out);
 }
 .ulink:hover { background-size: 100% 1px; }
+
+/* headline accent — token-referenced gradient fill (Hallmark: no inline color values) */
+.text-gradient-accent {
+  background: linear-gradient(116deg, var(--color-ink) 30%, var(--color-accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+/* slow drift for the atmospheric hero ring */
+@keyframes drift { 0%,100% { transform: translate3d(0,0,0) scale(1); } 50% { transform: translate3d(0,-14px,0) scale(1.04); } }
+.drift { animation: drift 14s var(--ease-in-out) infinite; }
+@media (prefers-reduced-motion: reduce) { .drift { animation: none; } }
