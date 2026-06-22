@@ -133,7 +133,7 @@ export default function Dashboard() {
     return (
       <>
         <Nav connect />
-        <main className="flex flex-1 flex-col items-center justify-center gap-5 px-6 text-center">
+        <main id="main-content" className="flex flex-1 flex-col items-center justify-center gap-5 px-6 text-center">
           <h1 className="text-[var(--text-display-s)]">Connect or watch</h1>
           <p className="max-w-md text-[var(--color-ink-2)]">
             Connect a wallet to act — or paste any address to watch its activity read-only, no
@@ -146,6 +146,7 @@ export default function Dashboard() {
               onChange={(e) => setWatchInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && startWatch()}
               placeholder="0x… address to watch"
+              aria-label="Address to watch"
               className="mono-num flex-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-paper)] px-3 py-2 text-sm text-[var(--color-ink)]"
             />
             <button
@@ -164,7 +165,7 @@ export default function Dashboard() {
   return (
     <>
       <Nav connect />
-      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
+      <main id="main-content" className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
         {readOnly && (
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 p-3 text-sm">
             <span className="text-[var(--color-ink)]">
@@ -198,6 +199,7 @@ export default function Dashboard() {
               <button
                 key={m.symbol}
                 onClick={() => setAssetIdx(i)}
+                aria-pressed={i === assetIdx}
                 className={`rounded-full border px-4 py-1.5 text-sm transition-colors duration-[var(--dur-fast)] ${
                   i === assetIdx
                     ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]"
@@ -331,6 +333,7 @@ function VersionToggle({ version, setVersion }: { version: VaultVersion; setVers
         <button
           key={v}
           onClick={() => setVersion(v)}
+          aria-pressed={version === v}
           className={`rounded-full px-4 py-1.5 transition-colors duration-[var(--dur-fast)] ${
             version === v ? "bg-[var(--color-accent)] text-[var(--color-paper)]" : "text-[var(--color-ink-2)]"
           }`}
@@ -493,6 +496,7 @@ function StrategyPanel({
             <button
               key={p.key}
               onClick={() => setPreset(p)}
+              aria-pressed={preset.key === p.key}
               className={`rounded-full border px-4 py-1.5 text-sm transition-colors duration-[var(--dur-fast)] ${
                 preset.key === p.key
                   ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]"

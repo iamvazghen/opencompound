@@ -14,7 +14,7 @@ export default function Landing() {
   return (
     <>
       <Nav />
-      <main className="flex-1">
+      <main id="main-content" className="flex-1">
         {/* Hero */}
         <section className="mx-auto max-w-5xl px-6 pt-24 pb-12">
           <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-[var(--color-line)] bg-[var(--color-paper-2)] px-3 py-1 text-xs text-[var(--color-ink-2)]">

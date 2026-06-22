@@ -35,7 +35,7 @@ export default function Strategies() {
   return (
     <>
       <Nav />
-      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-14 text-[var(--color-ink-2)] [&_h2]:text-[var(--color-ink)] [&_h3]:text-[var(--color-ink)] [&_strong]:text-[var(--color-ink)]">
+      <main id="main-content" className="mx-auto w-full max-w-3xl flex-1 px-6 py-14 text-[var(--color-ink-2)] [&_h2]:text-[var(--color-ink)] [&_h3]:text-[var(--color-ink)] [&_strong]:text-[var(--color-ink)]">
         <h1 className="text-[var(--text-display-s)] text-[var(--color-ink)]">Strategy overviews</h1>
         <p className="mt-4 text-lg">
           OpenCompound runs two distinct strategies on top of Aave V3. Both are real on-chain positions

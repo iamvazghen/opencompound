@@ -10,7 +10,7 @@ export default function RiskPage() {
   return (
     <>
       <Nav />
-      <article className="mx-auto w-full max-w-3xl flex-1 space-y-5 px-6 py-12 text-[var(--color-ink-2)] [&_h2]:mt-8 [&_h2]:text-[var(--color-ink)] [&_strong]:text-[var(--color-ink)]">
+      <article id="main-content" className="mx-auto w-full max-w-3xl flex-1 space-y-5 px-6 py-12 text-[var(--color-ink-2)] [&_h2]:mt-8 [&_h2]:text-[var(--color-ink)] [&_strong]:text-[var(--color-ink)]">
         <h1 className="text-[var(--text-display-s)] text-[var(--color-ink)]">Risk disclosure</h1>
         <p>
           OpenCompound is experimental, <strong>unaudited</strong> software for interacting with Aave V3.

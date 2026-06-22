@@ -55,7 +55,7 @@ createAppKit({
   // Chain-conditional: the Blockchain-API-backed features (token prices / history) only work on
   // mainnets, so they're ON in mainnet mode and OFF on testnets (where they'd return HTTP 400).
   features: {
-    analytics: false,
+    analytics: true, // Reown's cookieless wallet-funnel telemetry (page analytics via @vercel/analytics)
     email: false,
     socials: [],
     swaps: MAINNET,

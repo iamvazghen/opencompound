@@ -32,7 +32,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
             ))}
           </nav>
         </aside>
-        <article className="min-w-0 flex-1 space-y-4 text-[var(--color-ink-2)] [&_h1]:text-[var(--color-ink)] [&_h2]:text-[var(--color-ink)] [&_code]:text-[var(--color-accent)]">
+        <article id="main-content" className="min-w-0 flex-1 space-y-4 text-[var(--color-ink-2)] [&_h1]:text-[var(--color-ink)] [&_h2]:text-[var(--color-ink)] [&_code]:text-[var(--color-accent)]">
           {children}
         </article>
       </div>
