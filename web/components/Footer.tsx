@@ -12,6 +12,7 @@ export function Footer() {
         </p>
         <div className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-sm text-[var(--color-ink-3)]">
           <Link href="/strategies" className="hover:text-[var(--color-ink)]">Strategies</Link>
+          <Link href="/roadmap" className="hover:text-[var(--color-ink)]">Roadmap</Link>
           <Link href="/docs" className="hover:text-[var(--color-ink)]">Docs</Link>
           <Link href="/app" className="hover:text-[var(--color-ink)]">Dashboard</Link>
           <Link href="/deployment" className="hover:text-[var(--color-ink)]">Deployment</Link>

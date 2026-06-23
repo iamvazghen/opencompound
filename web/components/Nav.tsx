@@ -11,6 +11,7 @@ export function Nav({ connect = false }: { connect?: boolean }) {
         </Link>
         <nav aria-label="Primary" className="flex items-center gap-1 text-sm">
           <NavLink href="/strategies">Strategies</NavLink>
+          <NavLink href="/roadmap">Roadmap</NavLink>
           <NavLink href="/docs">Docs</NavLink>
           {connect ? (
             <div className="ml-2 flex items-center gap-2">
