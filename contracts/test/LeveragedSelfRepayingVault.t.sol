@@ -319,6 +319,6 @@ contract LeveragedSelfRepayingVaultTest is Test {
         vm.expectRevert();
         vault.setStrategy(9_500, 4); // > 90% LTV ceiling
         vm.expectRevert();
-        vault.setStrategy(7_000, 11); // > 10 cycle ceiling
+        vault.setStrategy(7_000, 6); // > 5 cycle ceiling
     }
 }

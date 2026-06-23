@@ -28,7 +28,7 @@ contract YieldDifferentialVault is ERC4626, Ownable, Pausable, ReentrancyGuard, 
     uint256 internal constant VARIABLE_RATE = 2;
     uint256 internal constant BPS = 10_000;
     uint256 public constant MAX_LTV_BPS = 9_300; // e-mode ETH-correlated ceiling
-    uint256 public constant MAX_CYCLES_LIMIT = 10;
+    uint256 public constant MAX_CYCLES_LIMIT = 5; // hard ceiling; use leverageFlash for an exact target
 
     IPool public immutable pool;
     ISwapRouter public immutable swapRouter;

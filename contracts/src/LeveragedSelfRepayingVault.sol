@@ -29,7 +29,7 @@ contract LeveragedSelfRepayingVault is ERC4626, Ownable, Pausable, ReentrancyGua
     uint256 internal constant VARIABLE_RATE = 2; // Aave V3 variable interest rate mode
     uint256 internal constant BPS = 10_000;
     uint256 public constant MAX_LTV_BPS = 9_000; // hard ceiling regardless of config
-    uint256 public constant MAX_CYCLES_LIMIT = 10; // hard ceiling regardless of config
+    uint256 public constant MAX_CYCLES_LIMIT = 5; // hard ceiling (4 loops ≈ 91% of max; >5 is gas-wasteful, use leverageFlash for exact target)
     uint256 public constant RECO_BUFFER_BPS = 1_000; // recommended LTV sits 10% below break-even
 
     IPool public immutable pool;

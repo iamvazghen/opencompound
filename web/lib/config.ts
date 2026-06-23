@@ -56,6 +56,15 @@ export function aavePool(chainId: number): `0x${string}` {
   return AAVE_POOL[chainId] || ZERO;
 }
 
+// PositionFactory — deploys an ISOLATED per-user LeveragePosition (own Aave account) per user/asset.
+// Lets each client manage their own LTV, loop, and draw tax-free cash from their own position.
+export const POSITION_FACTORY: Record<number, `0x${string}`> = {
+  [baseSepolia.id]: "0x059e81658EBcfADF4837a53505674e451535d14c",
+};
+export function positionFactory(chainId: number): `0x${string}` {
+  return POSITION_FACTORY[chainId] || ZERO;
+}
+
 export const SUPPORTED = [base, mainnet, baseSepolia, sepolia] as const;
 
 const EXPLORER: Record<number, string> = {

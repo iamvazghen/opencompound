@@ -74,16 +74,26 @@ export default function Strategies() {
               Manage the LTV against the live rates and you never add a cent; the yield does the repaying.
             </p>
             <p className="text-[var(--color-ink)]">
-              <strong>Spend without selling — and without the tax event:</strong> you unlock liquidity
-              from an asset you want to <em>keep</em>. Borrowing is not a disposal, so it doesn&apos;t
-              trigger a capital-gains sale the way cashing out would. You hold your ETH/BTC, get spendable
-              funds, and let the position pay the loan back from yield. (Not tax advice — rules vary by
-              jurisdiction.)
+              <strong>Withdraw cash for any purpose — without the tax event:</strong> you draw spendable
+              liquidity from an asset you want to <em>keep</em>, and use it for whatever you like —
+              redeploy into other DeFi, cover real-world expenses, anything. Borrowing is not a disposal,
+              so it doesn&apos;t trigger a capital-gains sale the way cashing out would. You hold your
+              ETH/BTC, take the cash, and the position keeps paying the loan back from yield. Your draw is
+              capped at a <strong>live safe loan-to-value</strong>, and the dashboard shows the exact
+              amount you can take while staying self-repaying — so you can&apos;t borrow yourself toward
+              liquidation. (Not tax advice — rules vary by jurisdiction.)
             </p>
             <p className="text-[var(--color-ink)]">
-              <strong>Works for any asset:</strong> the exact same vault logic runs on ETH, USDC, USDT,
-              WBTC, DAI and any other token Aave lists — each with its own live break-even computed from
-              that asset&apos;s own supply and borrow rates.
+              <strong>Your own isolated position:</strong> each user gets a personal position (an
+              individual Aave account), not a slice of a shared pool — so you set your own LTV, draw your
+              own cash, and loop your own leverage (up to 5 cycles) independently of everyone else. A
+              permissionless guard can always step in to deleverage you back to safety if the market
+              moves against you, even while you&apos;re away.
+            </p>
+            <p className="text-[var(--color-ink)]">
+              <strong>Works for any asset:</strong> the exact same logic runs on ETH, USDC, USDT, WBTC,
+              DAI and any other token Aave lists — each with its own live break-even computed from that
+              asset&apos;s own supply and borrow rates.
             </p>
           </div>
 
@@ -178,6 +188,16 @@ export default function Strategies() {
             self-repayment. An optional rebalance keeps the leverage on target as prices move.
           </p>
 
+          <h3 className="pt-2 text-lg">Withdraw cash here too — tax-free</h3>
+          <p>
+            Because the leveraged-staking position carries positive, it also gives you headroom to{" "}
+            <strong>borrow cash against it for any purpose</strong> — reinvest elsewhere, or spend in the
+            real world — without selling your staked ETH and without a taxable disposal. The staking
+            yield differential keeps servicing the debt while you hold the exposure, and any draw is held
+            below the live safe loan-to-value so the position stays self-repaying rather than tipping
+            toward liquidation.
+          </p>
+
           <h3 className="pt-2 text-lg">The trade-off v1 doesn&apos;t have</h3>
           <p>
             Because you supply one asset and borrow another, each leverage step needs a swap (borrowed
@@ -209,8 +229,10 @@ export default function Strategies() {
           <p>
             Building a leveraged position by looping — borrow a little, re-supply, repeat — is slow, pays
             transaction and (for v2) swap costs on every cycle, and can only approach the target LTV
-            asymptotically. OpenCompound instead uses a <strong>flash loan</strong> to reach the exact
-            target in a single transaction, and to fully unwind in a single transaction.
+            asymptotically — which is why loops are <strong>capped at 5</strong> (four loops already get
+            you ~91% of the way; beyond five is wasted gas). OpenCompound instead uses a{" "}
+            <strong>flash loan</strong> to reach the exact target in a single transaction, and to fully
+            unwind in a single transaction.
           </p>
           <p>
             The vault borrows the shortfall for one block, builds the whole position at once, and repays
