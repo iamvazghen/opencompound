@@ -22,4 +22,5 @@ export const positionAbi = [
   { type: "function", name: "repay", stateMutability: "nonpayable", inputs: [{ type: "uint256" }], outputs: [] },
   { type: "function", name: "withdraw", stateMutability: "nonpayable", inputs: [{ type: "uint256" }], outputs: [] },
   { type: "function", name: "close", stateMutability: "nonpayable", inputs: [], outputs: [] },
+  { type: "function", name: "guard", stateMutability: "nonpayable", inputs: [], outputs: [] },
 ] as const;

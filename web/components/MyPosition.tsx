@@ -45,7 +45,7 @@ export function MyPosition({
   const position = posRead.data as `0x${string}` | undefined;
   const hasPosition = !!position && position !== ZERO;
 
-  const fns = ["equity", "currentLtvBps", "breakEvenLtvBps", "maxSafeLtvBps", "drawableSelfRepaying", "isSelfRepaying", "healthFactor"];
+  const fns = ["equity", "currentLtvBps", "breakEvenLtvBps", "maxSafeLtvBps", "drawableSelfRepaying", "isSelfRepaying", "healthFactor", "drawableToSafe"];
   const reads = useReadContracts({
     contracts: hasPosition ? fns.map((functionName) => ({ address: position, abi: positionAbi, functionName })) : [],
     query: { enabled: hasPosition, refetchInterval: 30_000 }, // keep live with Aave rates
@@ -53,9 +53,11 @@ export function MyPosition({
   const equity = (reads.data?.[0]?.result as bigint) ?? 0n;
   const ltvBps = Number((reads.data?.[1]?.result as bigint) ?? 0n);
   const breakEvenBps = Number((reads.data?.[2]?.result as bigint) ?? 0n);
-  const drawable = (reads.data?.[4]?.result as bigint) ?? 0n;
+  const maxSafeBps = Number((reads.data?.[3]?.result as bigint) ?? 0n);
+  const drawable = (reads.data?.[4]?.result as bigint) ?? 0n; // self-repaying limit
   const selfRepaying = (reads.data?.[5]?.result as boolean) ?? false;
   const hf = (reads.data?.[6]?.result as bigint) ?? 0n;
+  const drawableSafe = (reads.data?.[7]?.result as bigint) ?? 0n; // absolute safe limit
 
   const human = (v: bigint) => (Number(v) / 10 ** decimals).toLocaleString(undefined, { maximumFractionDigits: 6 });
   const refetch = () => {
@@ -117,6 +119,8 @@ export function MyPosition({
     );
 
   const doClose = () => act(() => run("Close position", { address: position!, abi: positionAbi, functionName: "close", args: [] }).then(() => {}));
+  // Manual de-risk fallback (permissionless guard) — works even if no keeper is running.
+  const doGuard = () => act(() => run("Guard (de-risk)", { address: position!, abi: positionAbi, functionName: "guard", args: [] }).then(() => {}));
 
   if (factory === ZERO) return null;
 
@@ -137,10 +141,11 @@ export function MyPosition({
         </div>
       ) : (
         <>
-          <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-5">
             <Stat label={`Equity (${symbol})`} value={human(equity)} tone="good" />
             <Stat label="Your LTV" value={ltvBps ? fmtPct(ltvBps / 100) : "0%"} />
             <Stat label="Break-even" value={breakEvenBps ? fmtPct(breakEvenBps / 100) : "—"} tone="good" />
+            <Stat label="Safe LTV" value={maxSafeBps ? fmtPct(maxSafeBps / 100) : "—"} tone="warn" />
             <Stat label="Health" value={fmtHealth(hf)} />
           </div>
           <p className={`mt-3 text-sm ${selfRepaying ? "text-[var(--color-positive)]" : "text-[var(--color-warning)]"}`}>
@@ -190,10 +195,15 @@ export function MyPosition({
               </select>
             </label>
             <Btn onClick={doLeverage} disabled={busy}>Loop leverage</Btn>
+            <Btn onClick={doGuard} disabled={busy}>Guard now</Btn>
             <Btn onClick={doClose} disabled={busy} danger>Close position</Btn>
           </div>
           <p className="mt-3 text-xs text-[var(--color-ink-3)]">
-            “Draw to wallet” borrows against your collateral and sends it to you — a loan, not a sale, so no taxable event — capped at the live self-repaying limit ({human(drawable)} {symbol}). Loops are capped at 5.
+            “Draw to wallet” borrows against your collateral and sends it to you — a loan, not a sale,
+            so no taxable event. Stay self-repaying up to <strong className="text-[var(--color-ink-2)]">{human(drawable)} {symbol}</strong>;
+            absolute max (still safe, but above break-even) is {human(drawableSafe)} {symbol}. Loop leverage
+            is capped at 5 cycles and at your safe LTV{maxSafeBps ? ` (${fmtPct(maxSafeBps / 100)})` : ""}.
+            A keeper guards the position back to safety automatically if it ever drifts past that line.
           </p>
         </>
       )}
