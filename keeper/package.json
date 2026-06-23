@@ -1,0 +1,13 @@
+{
+  "name": "opencompound-keeper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Permissionless guard() keeper for OpenCompound vaults + isolated positions.",
+  "scripts": {
+    "start": "node keeper.mjs"
+  },
+  "dependencies": {
+    "viem": "^2.21.0"
+  }
+}
