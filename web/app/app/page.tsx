@@ -7,10 +7,11 @@ import { Nav } from "@/components/Nav";
 import { vaultAbi } from "@/lib/vaultAbi";
 import { yieldVaultAbi } from "@/lib/yieldVaultAbi";
 import { aavePoolAbi } from "@/lib/aaveAbi";
-import { aavePool, vaultAddress, ZERO, explorerBase, aaveMarketUrl, v1Markets, type VaultVersion } from "@/lib/config";
+import { aavePool, vaultAddress, ZERO, explorerBase, aaveMarketUrl, v1Markets, positionFactory, type VaultVersion } from "@/lib/config";
 import { simulate, netCarryPctAtLtv } from "@/lib/sim";
 import { fmtUsd, fmtHealth, rayToPct, fmtPct } from "@/lib/format";
 import { useTx } from "@/lib/useTx";
+import { MyPosition } from "@/components/MyPosition";
 
 export default function Dashboard() {
   const { address, isConnected } = useAccount();
@@ -56,7 +57,8 @@ export default function Dashboard() {
   if (version === "v2") fns.push("stakingYieldRay"); // index [9], v2 only
   const vaultReads = useReadContracts({
     contracts: vaultLive ? fns.map((functionName) => ({ address: vault, abi, functionName })) : [],
-    query: { enabled: vaultLive },
+    // Re-pull every 30s so the live Aave APRs / break-even / safe-LTV stay current without a refresh.
+    query: { enabled: vaultLive, refetchInterval: 30_000 },
   });
 
   // The viewed address's stake IN the vault (its shares × share price). This is the position
@@ -331,6 +333,18 @@ export default function Dashboard() {
             </div>
             <p className="mono-num mt-3 text-xs text-[var(--color-ink-3)]">vault: {vault}</p>
           </section>
+        )}
+
+        {/* Isolated per-user position (v1 single-asset) — your own Aave account: loop + draw cash. */}
+        {version === "v1" && !readOnly && address && v1Market && positionFactory(chainId) !== ZERO && (
+          <MyPosition
+            chainId={chainId}
+            factory={positionFactory(chainId)}
+            asset={v1Market.asset}
+            symbol={v1Market.symbol}
+            decimals={decimals}
+            user={address}
+          />
         )}
       </main>
     </>
